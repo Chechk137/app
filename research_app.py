@@ -3,6 +3,8 @@ import requests
 import datetime
 import random
 import time
+import json
+import os
 
 # --- 1. 설정 및 상수 ---
 
@@ -13,22 +15,55 @@ MISSIONS = [
     {"id": 4, "text": "연구 점수 1500점 달성하기", "type": "score", "target": 1500, "count": 1500, "reward": 500},
 ]
 
-# --- 2. 핵심 로직 함수 ---
+DATA_DIR = "user_data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+# --- 2. 데이터 관리 함수 (저장/로드) ---
+
+def load_user_data(user_id):
+    """사용자 ID에 해당하는 데이터를 파일에서 불러옵니다."""
+    file_path = os.path.join(DATA_DIR, f"{user_id}.json")
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            st.error(f"데이터 로드 중 오류 발생: {e}")
+    
+    # 데이터가 없으면 초기값 반환
+    return {
+        "score": 0,
+        "inventory": [],
+        "mission_id": 1
+    }
+
+def save_user_data(user_id):
+    """현재 세션 상태를 파일로 저장합니다."""
+    file_path = os.path.join(DATA_DIR, f"{user_id}.json")
+    data = {
+        "score": st.session_state.score,
+        "inventory": st.session_state.inventory,
+        "mission_id": st.session_state.mission_id
+    }
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"데이터 저장 중 오류 발생: {e}")
+
+# --- 3. 핵심 로직 함수 ---
 
 def get_current_year():
     return datetime.datetime.now().year
 
 def evaluate_paper(paper_data):
-    """
-    논문의 잠재적 가치를 평가하는 핵심 알고리즘
-    """
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
     age = current_year - year
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
-    # 1. 키워드 (Evidence)
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
         'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
@@ -36,17 +71,14 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
-    # 2. 저널 권위 (Journal Prestige)
     top_journals = ['nature', 'science', 'cell', 'lancet', 'nejm', 'jama', 'ieee', 'pnas', 'advanced materials', 'cancer discovery', 'chem', 'acs', 'angewandte']
     journal_lower = paper_data.get('journal', "").lower()
     is_top_tier = any(j in journal_lower for j in top_journals)
 
-    # 3. 연구팀 규모 (Team Size)
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
     is_solo = author_count == 1
 
-    # 4. 참고문헌 수 (Reference Depth)
     ref_count = paper_data.get('ref_count') 
     
     integrity_status = "valid" 
@@ -65,7 +97,6 @@ def evaluate_paper(paper_data):
     potential_type = "normal"
     reasons = []
 
-    # --- 점수 산정 로직 ---
     if integrity_status == "suspected":
         potential = 0
         potential_type = "bad"
@@ -113,7 +144,6 @@ def evaluate_paper(paper_data):
 
     display_score = int(10 + (citation_count ** 0.5) * 2)
     
-    # [수정] AI 분석 점수(AI Score) 계산 추가
     total_estimated_value = potential + display_score
     ai_score = min(100, int((total_estimated_value / 400) * 100))
 
@@ -123,7 +153,7 @@ def evaluate_paper(paper_data):
         "display_score": display_score,
         "potential": potential,
         "potential_type": potential_type,
-        "ai_score": ai_score, # [Fix] AI Score 추가
+        "ai_score": ai_score,
         "reason": reason_str,
         "has_evidence": has_evidence,
         "is_top_tier": is_top_tier,
@@ -212,7 +242,6 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
-    # [Fix] AI Score 기준으로 정렬
     valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
             
     return valid_papers[:12]
@@ -221,6 +250,9 @@ def search_crossref_api(query):
 
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
+# [세션 상태] 초기화
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
 if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'inventory' not in st.session_state:
@@ -255,21 +287,45 @@ def check_mission(paper, action):
         st.session_state.score += current_m['reward']
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
+        save_user_data(st.session_state.user_id) # 미션 완료 시 저장
 
+# --- 로그인 화면 (사이드바) ---
 with st.sidebar:
     st.title("🎓 연구 시뮬레이터")
-    st.caption("Evidence-Based Analysis")
+    st.caption("Outlier Hunter Edition")
     
-    current_level, progress, next_score = get_level_info(st.session_state.score)
-    
+    if not st.session_state.user_id:
+        st.markdown("### 👋 환영합니다!")
+        user_input = st.text_input("연구자 이름 (ID)을 입력하세요", placeholder="예: Dr.Kim")
+        if st.button("로그인 / 시작하기"):
+            if user_input:
+                st.session_state.user_id = user_input
+                # 데이터 로드
+                saved_data = load_user_data(user_input)
+                st.session_state.score = saved_data["score"]
+                st.session_state.inventory = saved_data["inventory"]
+                st.session_state.mission_id = saved_data["mission_id"]
+                st.success(f"{user_input}님으로 로그인되었습니다.")
+                st.rerun()
+            else:
+                st.warning("이름을 입력해주세요.")
+        st.stop() # 로그인 전에는 메인 화면 보이지 않음
+
+    # 로그인 후 상태 표시
+    st.info(f"👤 **{st.session_state.user_id}** 연구원")
+    if st.button("로그아웃 (저장됨)", use_container_width=True):
+        save_user_data(st.session_state.user_id)
+        st.session_state.user_id = None
+        st.rerun()
+
     st.divider()
     
+    current_level, progress, next_score = get_level_info(st.session_state.score)
     st.metric("연구 레벨", f"Lv. {current_level}")
     st.write(f"현재 점수: {st.session_state.score} / {next_score}")
     st.progress(progress)
     
     st.divider()
-    
     st.metric("보유 논문", f"{len(st.session_state.inventory)}편")
     
     current_mission = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
@@ -293,6 +349,7 @@ with st.sidebar:
        : 최신+저인용은 기회, 과거+무인용은 함정
     """)
 
+# --- 메인 화면 ---
 tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
 
 with tab_search:
@@ -320,7 +377,6 @@ with tab_search:
                 
                 with c1:
                     st.progress(paper['ai_score'] / 100, text=f"AI 추천 지수: {paper['ai_score']}점")
-                    
                     st.markdown(f"### {paper['title']}")
                     
                     tags = []
@@ -349,6 +405,7 @@ with tab_search:
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['display_score']
                             check_mission(paper, "collect")
+                            save_user_data(st.session_state.user_id) # 수집 시 저장
                             st.rerun()
 
 with tab_inventory:
@@ -384,6 +441,7 @@ with tab_inventory:
                                     st.toast("대박! 숨겨진 명작을 찾았습니다!", icon="🎉")
                                 else:
                                     st.toast("검증이 완료되었습니다.", icon="✅")
+                                save_user_data(st.session_state.user_id) # 검증 시 저장
                                 st.rerun()
                         else:
                             st.warning(paper['risk_reason'])
@@ -394,6 +452,7 @@ with tab_inventory:
                                 st.session_state.inventory[i]['final_score'] = paper['display_score'] + bonus
                                 st.session_state.inventory[i]['potential_type'] = "verified_user"
                                 st.session_state.inventory[i]['reason'] = "사용자 직접 확인으로 검증됨"
+                                save_user_data(st.session_state.user_id) # 강제 승인 시 저장
                                 st.rerun()
                     else:
                         st.success(f"획득: {paper.get('final_score', 0)}점")
@@ -404,6 +463,7 @@ with tab_inventory:
                         st.session_state.score = max(0, st.session_state.score - deduction)
                         st.session_state.inventory.pop(i)
                         st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
+                        save_user_data(st.session_state.user_id) # 삭제 시 저장
                         st.rerun()
                 
                 st.markdown(f"[📄 원문 보기]({paper['url']})")
