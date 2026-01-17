@@ -28,12 +28,11 @@ def evaluate_paper(paper_data):
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
-    # 1. 키워드 (Evidence) - Clinical Trial 제거됨, 화학/공학 키워드 보강
+    # 1. 키워드 (Evidence)
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
-        'experiment', 'analysis', 'clinical',
-        # [추가] 화학/약학/공학 분야 실증 키워드
-        'activity', 'synthesis', 'design', 'evaluation', 'characterization', 'properties', 'performance', 'application'
+        'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
+        'evaluation', 'characterization', 'properties', 'performance', 'application'
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
@@ -48,21 +47,16 @@ def evaluate_paper(paper_data):
     is_solo = author_count == 1
 
     # 4. 참고문헌 수 (Reference Depth)
-    ref_count = paper_data.get('ref_count') # None 가능
+    ref_count = paper_data.get('ref_count') 
     
-    # 무결성 상태 판단
     integrity_status = "valid" 
     risk_reason = ""
 
-    # API 데이터 누락(None)이거나 5개 미만인 경우
     if ref_count is None:
-        # 인용이 많거나 Top Tier면 단순 누락으로 간주(봐줌), 아니면 정보 부족
         if citation_count < 5 and not is_top_tier:
             integrity_status = "uncertain"
             risk_reason = "메타데이터 누락 (참고문헌 정보 없음)"
     elif ref_count < 5:
-        # 참고문헌이 너무 적음 -> 함정 의심
-        # 단, 이미 인용이 많거나 Top Tier면 예외 처리
         if citation_count < 5 and not is_top_tier:
             integrity_status = "suspected"
             risk_reason = "참고문헌 수 부족 (데이터 빈약 의심)"
@@ -72,8 +66,6 @@ def evaluate_paper(paper_data):
     reasons = []
 
     # --- 점수 산정 로직 ---
-    
-    # A. 함정 (Trap) - 무결성 문제나 도태된 연구
     if integrity_status == "suspected":
         potential = 0
         potential_type = "bad"
@@ -82,8 +74,6 @@ def evaluate_paper(paper_data):
         potential = 0
         potential_type = "bad"
         reasons.append("오래되고 인용 없는 도태된 연구")
-    
-    # B. 숨겨진 명작 (Hidden Gem)
     elif citation_count < 50 and age <= 3:
         bonus = 0
         if has_evidence:
@@ -107,15 +97,13 @@ def evaluate_paper(paper_data):
             potential = 30
             potential_type = "normal"
             reasons.append("평이한 최신 연구")
-            
-    # C. 안전 자산 (Safe Asset)
     else:
         potential = 20
         if is_top_tier:
             potential += 50
             reasons.append("권위 있는 저널")
         if has_evidence:
-            potential += 30 # [수정] 증거가 확실하면 보너스 상향 (기존 20 -> 30)
+            potential += 30
         potential_type = "good"
         reasons.append("이미 검증된 안전한 연구")
 
@@ -124,12 +112,18 @@ def evaluate_paper(paper_data):
         reasons.append("단독 연구(데이터 부족 위험)")
 
     display_score = int(10 + (citation_count ** 0.5) * 2)
+    
+    # [수정] AI 분석 점수(AI Score) 계산 추가
+    total_estimated_value = potential + display_score
+    ai_score = min(100, int((total_estimated_value / 400) * 100))
+
     reason_str = ", ".join(reasons) if reasons else "특이 사항 없음"
 
     return {
         "display_score": display_score,
         "potential": potential,
         "potential_type": potential_type,
+        "ai_score": ai_score, # [Fix] AI Score 추가
         "reason": reason_str,
         "has_evidence": has_evidence,
         "is_top_tier": is_top_tier,
@@ -139,9 +133,6 @@ def evaluate_paper(paper_data):
     }
 
 def search_crossref_api(query):
-    """
-    Crossref API를 통해 실제 논문 데이터를 검색하고 필터링함
-    """
     try:
         url = f"https://api.crossref.org/works?query={query}&rows=40&sort=relevance"
         response = requests.get(url, timeout=5)
@@ -158,12 +149,10 @@ def search_crossref_api(query):
     current_year = get_current_year()
 
     for item in items:
-        # 1. 필수 데이터 및 DOI 필터링
         if not item.get('DOI'): continue
         if not item.get('title'): continue
         if not item.get('author'): continue
         
-        # 2. 제목 노이즈 필터링
         title = item['title'][0]
         title_lower = title.lower()
         if len(title) < 5: continue
@@ -181,23 +170,20 @@ def search_crossref_api(query):
         if any(inv in title_lower for inv in invalid_titles): continue
         if "&na;" in title_lower: continue
 
-        # 3. 저자 유효성 검사
         authors_raw = item['author']
         valid_authors = []
         for a in authors_raw:
             given = a.get('given', '').strip()
             family = a.get('family', '').strip()
             full_name = f"{given} {family}".strip()
-            # 이름이 없거나 익명/NA인 경우 제외
             if full_name and "&na;" not in full_name.lower() and "anonymous" not in full_name.lower():
                 valid_authors.append(full_name)
         
         if not valid_authors: continue
 
-        # 메타데이터 추출
         citations = item.get('is-referenced-by-count', 0)
         journal = item.get('container-title', ["Unknown Journal"])[0]
-        ref_count = item.get('reference-count') # None 가능
+        ref_count = item.get('reference-count')
         
         pub_year = current_year - 5
         if item.get('published') and item['published'].get('date-parts'):
@@ -205,14 +191,12 @@ def search_crossref_api(query):
         elif item.get('created') and item['created'].get('date-parts'):
              pub_year = item['created']['date-parts'][0][0]
 
-        # 평가 실행
         paper_data_for_eval = {
             'title': title, 'year': pub_year, 'citations': citations, 
             'journal': journal, 'author_count': len(valid_authors), 'ref_count': ref_count
         }
         eval_result = evaluate_paper(paper_data_for_eval)
 
-        # 결과 객체 생성
         paper_obj = {
             'id': item['DOI'],
             'title': title,
@@ -228,17 +212,15 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
-    # 평가 점수(잠재력 + 기본 점수)가 높은 순서대로 정렬하여 상위 추천
-    valid_papers.sort(key=lambda x: x['potential'] + x['display_score'], reverse=True)
+    # [Fix] AI Score 기준으로 정렬
+    valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
             
     return valid_papers[:12]
 
 # --- 3. Streamlit UI ---
 
-# 페이지 설정
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
-# 세션 상태 초기화
 if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'inventory' not in st.session_state:
@@ -248,7 +230,6 @@ if 'mission_id' not in st.session_state:
 if 'search_results' not in st.session_state:
     st.session_state.search_results = []
 
-# 레벨 및 게이지 계산 함수
 def get_level_info(score):
     level_threshold = 500
     level = (score // level_threshold) + 1
@@ -256,7 +237,6 @@ def get_level_info(score):
     next_milestone = (level) * level_threshold
     return level, progress, next_milestone
 
-# 미션 체크 함수
 def check_mission(paper, action):
     current_m = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
     if not current_m: return
@@ -276,7 +256,6 @@ def check_mission(paper, action):
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
 
-# 사이드바
 with st.sidebar:
     st.title("🎓 연구 시뮬레이터")
     st.caption("Evidence-Based Analysis")
@@ -285,7 +264,6 @@ with st.sidebar:
     
     st.divider()
     
-    # 학위 대신 레벨 숫자와 게이지 표시
     st.metric("연구 레벨", f"Lv. {current_level}")
     st.write(f"현재 점수: {st.session_state.score} / {next_score}")
     st.progress(progress)
@@ -315,10 +293,8 @@ with st.sidebar:
        : 최신+저인용은 기회, 과거+무인용은 함정
     """)
 
-# 메인 화면
 tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
 
-# --- 탭 1: 검색 ---
 with tab_search:
     col1, col2 = st.columns([4, 1])
     with col1:
@@ -343,7 +319,6 @@ with tab_search:
                 c1, c2 = st.columns([5, 1.5])
                 
                 with c1:
-                    # AI 추천 점수 바 표시
                     st.progress(paper['ai_score'] / 100, text=f"AI 추천 지수: {paper['ai_score']}점")
                     
                     st.markdown(f"### {paper['title']}")
@@ -356,7 +331,6 @@ with tab_search:
                     
                     st.write(" ".join([f"`{t}`" for t in tags]))
                     
-                    # 저자 표시 (3명 + et al.)
                     auth_display = ", ".join(paper['authors'])
                     if paper['author_full_count'] > 3:
                         auth_display += f" 외 {paper['author_full_count'] - 3}명"
@@ -377,7 +351,6 @@ with tab_search:
                             check_mission(paper, "collect")
                             st.rerun()
 
-# --- 탭 2: 내 서재 ---
 with tab_inventory:
     if not st.session_state.inventory:
         st.info("수집된 논문이 없습니다.")
@@ -400,7 +373,6 @@ with tab_inventory:
                 c_btn1, c_btn2 = st.columns([2, 1])
                 with c_btn1:
                     if not paper['is_reviewed']:
-                        # 무결성 검증 분기
                         if paper['integrity_status'] == "valid":
                             if st.button("🔬 심층 검증", key=f"rev_{i}", type="primary", use_container_width=True):
                                 st.session_state.inventory[i]['is_reviewed'] = True
