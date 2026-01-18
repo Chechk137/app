@@ -19,10 +19,9 @@ DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# --- 2. 데이터 관리 함수 (저장/로드) ---
+# --- 2. 데이터 관리 함수 ---
 
 def load_user_data(user_id):
-    """사용자 ID에 해당하는 데이터를 파일에서 불러옵니다."""
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     if os.path.exists(file_path):
         try:
@@ -30,16 +29,9 @@ def load_user_data(user_id):
                 return json.load(f)
         except Exception as e:
             st.error(f"데이터 로드 중 오류 발생: {e}")
-    
-    # 데이터가 없으면 초기값 반환
-    return {
-        "score": 0,
-        "inventory": [],
-        "mission_id": 1
-    }
+    return {"score": 0, "inventory": [], "mission_id": 1}
 
 def save_user_data(user_id):
-    """현재 세션 상태를 파일로 저장합니다."""
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     data = {
         "score": st.session_state.score,
@@ -97,6 +89,7 @@ def evaluate_paper(paper_data):
     potential_type = "normal"
     reasons = []
 
+    # 점수 산정 로직
     if integrity_status == "suspected":
         potential = 0
         potential_type = "bad"
@@ -143,7 +136,6 @@ def evaluate_paper(paper_data):
         reasons.append("단독 연구(데이터 부족 위험)")
 
     display_score = int(10 + (citation_count ** 0.5) * 2)
-    
     total_estimated_value = potential + display_score
     ai_score = min(100, int((total_estimated_value / 400) * 100))
 
@@ -163,16 +155,20 @@ def evaluate_paper(paper_data):
     }
 
 def search_crossref_api(query):
+    # [수정] 따옴표 검색 감지 (정확도 순 정렬 모드)
+    is_exact_mode = query.startswith('"') and query.endswith('"')
+    clean_query = query.strip('"') if is_exact_mode else query
+    
     try:
-        url = f"https://api.crossref.org/works?query={query}&rows=40&sort=relevance"
+        url = f"https://api.crossref.org/works?query={clean_query}&rows=40&sort=relevance"
         response = requests.get(url, timeout=5)
         data = response.json()
     except Exception as e:
         st.error("API 연결 중 오류가 발생했습니다.")
-        return []
+        return [], False
 
     if not data.get('message') or not data['message'].get('items'):
-        return []
+        return [], False
 
     items = data['message']['items']
     valid_papers = []
@@ -242,17 +238,19 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
-    valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
+    # [수정] 정렬 로직 분기
+    if not is_exact_mode:
+        # 일반 모드: AI 추천 점수 순 (잠재력 높은 순)
+        valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
+    
+    # 따옴표 모드일 때는 API가 준 순서(Relevance) 그대로 유지
             
-    return valid_papers[:12]
+    return valid_papers[:12], is_exact_mode
 
 # --- 3. Streamlit UI ---
 
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
-# [세션 상태] 초기화
-if 'user_id' not in st.session_state:
-    st.session_state.user_id = None
 if 'score' not in st.session_state:
     st.session_state.score = 0
 if 'inventory' not in st.session_state:
@@ -261,6 +259,8 @@ if 'mission_id' not in st.session_state:
     st.session_state.mission_id = 1
 if 'search_results' not in st.session_state:
     st.session_state.search_results = []
+if 'is_exact_search' not in st.session_state:
+    st.session_state.is_exact_search = False
 
 def get_level_info(score):
     level_threshold = 500
@@ -287,9 +287,9 @@ def check_mission(paper, action):
         st.session_state.score += current_m['reward']
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
-        save_user_data(st.session_state.user_id) # 미션 완료 시 저장
+        if st.session_state.user_id:
+            save_user_data(st.session_state.user_id)
 
-# --- 로그인 화면 (사이드바) ---
 with st.sidebar:
     st.title("🎓 연구 시뮬레이터")
     st.caption("Outlier Hunter Edition")
@@ -300,7 +300,6 @@ with st.sidebar:
         if st.button("로그인 / 시작하기"):
             if user_input:
                 st.session_state.user_id = user_input
-                # 데이터 로드
                 saved_data = load_user_data(user_input)
                 st.session_state.score = saved_data["score"]
                 st.session_state.inventory = saved_data["inventory"]
@@ -309,9 +308,8 @@ with st.sidebar:
                 st.rerun()
             else:
                 st.warning("이름을 입력해주세요.")
-        st.stop() # 로그인 전에는 메인 화면 보이지 않음
+        st.stop()
 
-    # 로그인 후 상태 표시
     st.info(f"👤 **{st.session_state.user_id}** 연구원")
     if st.button("로그아웃 (저장됨)", use_container_width=True):
         save_user_data(st.session_state.user_id)
@@ -349,13 +347,12 @@ with st.sidebar:
        : 최신+저인용은 기회, 과거+무인용은 함정
     """)
 
-# --- 메인 화면 ---
 tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
 
 with tab_search:
     col1, col2 = st.columns([4, 1])
     with col1:
-        query = st.text_input("키워드 입력", placeholder="Immunotherapy, Quantum Computing...")
+        query = st.text_input("키워드 입력", placeholder='예: "Immunotherapy" (따옴표는 정확도순)')
     with col2:
         st.write("")
         st.write("")
@@ -363,13 +360,17 @@ with tab_search:
 
     if search_btn and query:
         with st.spinner("논문 데이터 분석 중..."):
-            results = search_crossref_api(query)
+            results, is_exact = search_crossref_api(query)
             st.session_state.search_results = results
+            st.session_state.is_exact_search = is_exact
             if not results:
                 st.error("검색 결과가 없습니다.")
 
     if st.session_state.search_results:
-        st.caption(f"AI 추천 순으로 정렬된 결과 {len(st.session_state.search_results)}건")
+        # 정렬 기준 안내 메시지
+        count = len(st.session_state.search_results)
+        sort_mode = "정확도(Relevance) 순" if st.session_state.is_exact_search else "AI 추천(Potential) 순"
+        st.caption(f"검색 결과 {count}건 ({sort_mode})")
         
         for i, paper in enumerate(st.session_state.search_results):
             with st.container(border=True):
@@ -405,7 +406,7 @@ with tab_search:
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['display_score']
                             check_mission(paper, "collect")
-                            save_user_data(st.session_state.user_id) # 수집 시 저장
+                            save_user_data(st.session_state.user_id) 
                             st.rerun()
 
 with tab_inventory:
@@ -441,7 +442,7 @@ with tab_inventory:
                                     st.toast("대박! 숨겨진 명작을 찾았습니다!", icon="🎉")
                                 else:
                                     st.toast("검증이 완료되었습니다.", icon="✅")
-                                save_user_data(st.session_state.user_id) # 검증 시 저장
+                                save_user_data(st.session_state.user_id) 
                                 st.rerun()
                         else:
                             st.warning(paper['risk_reason'])
@@ -452,7 +453,7 @@ with tab_inventory:
                                 st.session_state.inventory[i]['final_score'] = paper['display_score'] + bonus
                                 st.session_state.inventory[i]['potential_type'] = "verified_user"
                                 st.session_state.inventory[i]['reason'] = "사용자 직접 확인으로 검증됨"
-                                save_user_data(st.session_state.user_id) # 강제 승인 시 저장
+                                save_user_data(st.session_state.user_id) 
                                 st.rerun()
                     else:
                         st.success(f"획득: {paper.get('final_score', 0)}점")
@@ -463,7 +464,7 @@ with tab_inventory:
                         st.session_state.score = max(0, st.session_state.score - deduction)
                         st.session_state.inventory.pop(i)
                         st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
-                        save_user_data(st.session_state.user_id) # 삭제 시 저장
+                        save_user_data(st.session_state.user_id) 
                         st.rerun()
                 
                 st.markdown(f"[📄 원문 보기]({paper['url']})")
