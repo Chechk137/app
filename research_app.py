@@ -5,6 +5,7 @@ import random
 import time
 import json
 import os
+import math
 
 # --- 1. 설정 및 상수 ---
 
@@ -19,7 +20,7 @@ DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# --- 2. 데이터 관리 함수 ---
+# --- 2. 데이터 관리 함수 (저장/로드) ---
 
 def load_user_data(user_id):
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
@@ -160,11 +161,13 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=500&sort=relevance"
-        response = requests.get(url, timeout=5)
+        # [수정] 대량 수집 (rows=1000)
+        url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
+        # 데이터량이 많으므로 timeout 증가
+        response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
-        st.error("API 연결 중 오류가 발생했습니다.")
+        st.error(f"API 연결 중 오류가 발생했습니다: {e}")
         return [], False
 
     if not data.get('message') or not data['message'].get('items'):
@@ -241,8 +244,8 @@ def search_crossref_api(query):
     if not is_exact_mode:
         valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
             
-        # [수정] 최종 반환 개수 증가 (12 -> 50)
-    return valid_papers[:50], is_exact_mode
+    # [수정] 전체 리스트 반환 (페이지네이션은 UI에서 처리)
+    return valid_papers, is_exact_mode
 
 # --- 3. Streamlit UI ---
 
@@ -259,6 +262,9 @@ if 'mission_id' not in st.session_state:
     st.session_state['mission_id'] = 1
 if 'search_results' not in st.session_state:
     st.session_state['search_results'] = []
+# [추가] 페이지네이션 상태
+if 'search_page' not in st.session_state:
+    st.session_state['search_page'] = 1
 
 def get_level_info(score):
     level_threshold = 500
@@ -288,7 +294,7 @@ def check_mission(paper, action):
         if st.session_state.get("user_id"):
             save_user_data(st.session_state.user_id)
 
-# [수정] 모바일 대응: 로그인 전 화면을 메인 영역에 표시
+# 모바일 대응: 로그인 전 화면
 if not st.session_state.get("user_id"):
     st.title("🎓 AI 기반 논문 추천 시스템")
     st.caption("캡스톤 디자인 _ AI:D")
@@ -315,12 +321,12 @@ if not st.session_state.get("user_id"):
             st.rerun()
         else:
             st.warning("이름을 입력해주세요.")
-    st.stop() # 로그인 전에는 아래 코드 실행 안 함
+    st.stop() 
 
 # --- 로그인 후 사이드바 ---
 with st.sidebar:
-    st.title("🎓 연구 시뮬레이터")
-    st.caption("Outlier Hunter Edition")
+    st.title("🎓 AI 기반 논문 추천 시스템")
+    st.caption("캡스톤 디자인_AI:D")
     
     st.info(f"👤 {st.session_state.user_id} 연구원")
     if st.button("로그아웃 (저장됨)", use_container_width=True):
@@ -348,15 +354,15 @@ with st.sidebar:
     st.markdown("#### 📊 평가 가이드")
     st.markdown("""
     1. 증거 적합성 지표 (Evidence Index)
-       : in vivo, efficacy 등 실험 키워드 포함
+       : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
     2. 저널 권위 지표 (Prestige Index)
-       : Nature, Science 등 Top Tier 저널
+       : Nature, Science 등 학계에서 인정받는 최상위 저널
     3. 연구 규모 지표 (Collaboration Index)
-       : 저자 5인 이상 참여
+       : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
     4. 데이터 신뢰도 지표 (Reliability Index)
-       : 참고 문헌 수 10개 이상 선호, 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제
+       : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
     5. 시의성 대비 인용 지표 (Opportunity Index)
-       : 최신+저인용은 기회, 과거+무인용은 함정
+       : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
     """)
     
     st.markdown("#### 📊 검색 방법")
@@ -379,19 +385,35 @@ with tab_search:
         search_btn = st.button("검색", type="primary", use_container_width=True)
 
     if search_btn and query:
-        with st.spinner("논문 데이터 분석 중..."):
+        with st.spinner("논문 데이터 대량 분석 중... (최대 1000건)"):
             results, is_exact = search_crossref_api(query)
             st.session_state.search_results = results
             st.session_state.is_exact_search = is_exact
+            st.session_state.search_page = 1 # 검색 시 페이지 초기화
             if not results:
                 st.error("검색 결과가 없습니다.")
 
     if st.session_state.search_results:
-        count = len(st.session_state.search_results)
-        sort_mode = "정확도(Relevance) 순" if st.session_state.is_exact_search else "AI 추천(Potential) 순"
-        st.caption(f"검색 결과 {count}건 ({sort_mode})")
+        # [수정] 페이지네이션 로직 적용
+        items_per_page = 50
+        total_items = len(st.session_state.search_results)
+        total_pages = max(1, math.ceil(total_items / items_per_page))
+        current_page = st.session_state.search_page
+
+        start_idx = (current_page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
         
-        for i, paper in enumerate(st.session_state.search_results):
+        # 현재 페이지 데이터 슬라이싱
+        page_items = st.session_state.search_results[start_idx:end_idx]
+
+        count = total_items
+        sort_mode = "정확도(Relevance) 순" if st.session_state.is_exact_search else "AI 추천(Potential) 순"
+        st.caption(f"검색 결과 총 {count}건 ({sort_mode}) | 현재 페이지: {current_page}/{total_pages}")
+        
+        for i, paper in enumerate(page_items):
+            # 고유 키 생성 (페이지 인덱스 반영)
+            unique_key_idx = start_idx + i
+            
             with st.container(border=True):
                 c1, c2 = st.columns([5, 1.5])
                 
@@ -419,14 +441,33 @@ with tab_search:
                     
                     is_owned = any(p['id'] == paper['id'] for p in st.session_state.inventory)
                     if is_owned:
-                        st.button("보유중", key=f"owned_{i}", disabled=True, use_container_width=True)
+                        st.button("보유중", key=f"owned_{unique_key_idx}", disabled=True, use_container_width=True)
                     else:
-                        if st.button("수집하기", key=f"collect_{i}", type="secondary", use_container_width=True):
+                        if st.button("수집하기", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['display_score']
                             check_mission(paper, "collect")
                             save_user_data(st.session_state.user_id) 
                             st.rerun()
+        
+        # [수정] 페이지네이션 컨트롤러
+        st.divider()
+        col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+        
+        with col_p1:
+            if current_page > 1:
+                if st.button("◀ 이전 페이지", use_container_width=True):
+                    st.session_state.search_page -= 1
+                    st.rerun()
+        
+        with col_p2:
+            st.markdown(f"<div style='text-align: center; font-weight: bold; padding-top: 10px;'>Page {current_page} / {total_pages}</div>", unsafe_allow_html=True)
+        
+        with col_p3:
+            if current_page < total_pages:
+                if st.button("다음 페이지 ▶", use_container_width=True):
+                    st.session_state.search_page += 1
+                    st.rerun()
 
 with tab_inventory:
     if not st.session_state.inventory:
@@ -444,7 +485,7 @@ with tab_inventory:
                     elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
                     else: status_emoji, status_text = "✅", "검증됨"
 
-                st.markdown(f"{paper['title']}")
+                st.markdown(f"**{paper['title']}**")
                 st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
                 
                 c_btn1, c_btn2 = st.columns([2, 1])
@@ -490,7 +531,3 @@ with tab_inventory:
                 
                 if paper['is_reviewed']:
                     st.info(f"분석 결과: {paper['reason']}")
-
-
-
-
