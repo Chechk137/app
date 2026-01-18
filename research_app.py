@@ -284,32 +284,44 @@ def check_mission(paper, action):
         st.session_state.score += current_m['reward']
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
-        # [수정] user_id 존재 여부 확인 후 저장
         if st.session_state.get("user_id"):
             save_user_data(st.session_state.user_id)
 
+# [수정] 모바일 대응: 로그인 전 화면을 메인 영역에 표시
+if not st.session_state.get("user_id"):
+    st.title("🎓 연구 시뮬레이터")
+    st.caption("Outlier Hunter Edition")
+    st.markdown("---")
+    st.markdown("### 👋 환영합니다!")
+    st.info("연구자 ID를 입력하여 시뮬레이션을 시작하세요.")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        user_input = st.text_input("연구자 이름 (ID)", placeholder="예: Dr.Kim")
+    with col2:
+        st.write("")
+        st.write("")
+        login_btn = st.button("로그인 / 시작", type="primary", use_container_width=True)
+    
+    if login_btn:
+        if user_input:
+            st.session_state.user_id = user_input
+            saved_data = load_user_data(user_input)
+            st.session_state.score = saved_data["score"]
+            st.session_state.inventory = saved_data["inventory"]
+            st.session_state.mission_id = saved_data["mission_id"]
+            st.success(f"{user_input}님으로 로그인되었습니다.")
+            st.rerun()
+        else:
+            st.warning("이름을 입력해주세요.")
+    st.stop() # 로그인 전에는 아래 코드 실행 안 함
+
+# --- 로그인 후 사이드바 ---
 with st.sidebar:
     st.title("🎓 연구 시뮬레이터")
     st.caption("Outlier Hunter Edition")
     
-    # [수정] 안전한 속성 접근 (.get 사용)
-    if not st.session_state.get("user_id"):
-        st.markdown("### 👋 환영합니다!")
-        user_input = st.text_input("연구자 이름 (ID)을 입력하세요", placeholder="예: Dr.Kim")
-        if st.button("로그인 / 시작하기"):
-            if user_input:
-                st.session_state.user_id = user_input
-                saved_data = load_user_data(user_input)
-                st.session_state.score = saved_data["score"]
-                st.session_state.inventory = saved_data["inventory"]
-                st.session_state.mission_id = saved_data["mission_id"]
-                st.success(f"{user_input}님으로 로그인되었습니다.")
-                st.rerun()
-            else:
-                st.warning("이름을 입력해주세요.")
-        st.stop()
-
-    st.info(f"👤 **{st.session_state.user_id}** 연구원")
+    st.info(f"👤 {st.session_state.user_id} 연구원")
     if st.button("로그아웃 (저장됨)", use_container_width=True):
         save_user_data(st.session_state.user_id)
         st.session_state.user_id = None
@@ -334,27 +346,25 @@ with st.sidebar:
     st.divider()
     st.markdown("#### 📊 평가 가이드")
     st.markdown("""
-    1. **증거 적합성 (Evidence)**
-       : in vivo, efficacy 등 실험 키워드 포함
-    2. **저널 권위 (Prestige)**
-       : Nature, Science 등 Top Tier 저널
-    3. **연구 규모 (Collaboration)**
-       : 저자 5인 이상 참여
-    4. **데이터 신뢰도 (Reliability)**
-       : 참고문헌 수 10개 이상 (함정 주의)
-    5. **시의성/인용 (Opportunity)**
-       : 최신+저인용은 기회, 과거+무인용은 함정
-    """)  
+    1. 증거 적합성 지표 (Evidence Index)
+       : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
+    2. 저널 권위 지표 (Prestige Index)
+       : Nature, Science 등 학계에서 인정받는 최상위 저널
+    3. 연구 규모 지표 (Collaboration Index)
+       : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
+    4. 데이터 신뢰도 지표 (Reliability Index)
+       : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
+    5. 시의성 대비 인용 지표 (Opportunity Index)
+       : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
+    """)
     
     st.markdown("#### 📊 검색 방법")
     st.markdown("""
-    1. **일반 검색**
+    1. 일반 검색
        : AI 추천 지수가 높은 순으로 추천
-    2. **"[키워드]"**
+    2. "키워드"
        : 따옴표 검색을 통해 정확도 순으로 검색
     """)
-
-
 
 tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
 
@@ -433,7 +443,7 @@ with tab_inventory:
                     elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
                     else: status_emoji, status_text = "✅", "검증됨"
 
-                st.markdown(f"**{paper['title']}**")
+                st.markdown(f"{paper['title']}")
                 st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
                 
                 c_btn1, c_btn2 = st.columns([2, 1])
