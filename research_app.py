@@ -289,11 +289,11 @@ def check_mission(paper, action):
 
 # [수정] 모바일 대응: 로그인 전 화면을 메인 영역에 표시
 if not st.session_state.get("user_id"):
-    st.title("🎓 연구 시뮬레이터")
-    st.caption("Outlier Hunter Edition")
+    st.title("🎓 AI 기반 논문 추천 시스템")
+    st.caption("캡스톤 디자인 _ AI:D")
     st.markdown("---")
     st.markdown("### 👋 환영합니다!")
-    st.info("연구자 ID를 입력하여 시뮬레이션을 시작하세요.")
+    st.info("연구자 ID를 입력하여 검색을 시작하세요.")
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -489,3 +489,4 @@ with tab_inventory:
                 
                 if paper['is_reviewed']:
                     st.info(f"분석 결과: {paper['reason']}")
+
