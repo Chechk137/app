@@ -450,23 +450,57 @@ with tab_search:
                             save_user_data(st.session_state.user_id) 
                             st.rerun()
         
-        # [수정] 페이지네이션 컨트롤러
+        # [수정] 페이지네이션 컨트롤러 (버튼 + 직접 입력)
         st.divider()
-        col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+        nav_container = st.container()
         
-        with col_p1:
-            if current_page > 1:
-                if st.button("◀ 이전 페이지", use_container_width=True):
-                    st.session_state.search_page -= 1
-                    st.rerun()
-        
-        with col_p2:
-            st.markdown(f"<div style='text-align: center; font-weight: bold; padding-top: 10px;'>Page {current_page} / {total_pages}</div>", unsafe_allow_html=True)
-        
-        with col_p3:
-            if current_page < total_pages:
-                if st.button("다음 페이지 ▶", use_container_width=True):
-                    st.session_state.search_page += 1
+        with nav_container:
+            col_nav, col_input = st.columns([5, 2])
+            
+            with col_nav:
+                # 최대 7개 버튼 (이전 + 5개 번호 + 다음)을 위한 컬럼
+                btn_cols = st.columns(7)
+                
+                # < 이전 버튼
+                with btn_cols[0]:
+                    if st.button("◀", key="nav_prev", disabled=current_page==1):
+                        st.session_state.search_page -= 1
+                        st.rerun()
+                
+                # 페이지 번호 계산 (현재 페이지 주변 5개)
+                # 전체 페이지가 5개 이하면 전체 표시
+                if total_pages <= 5:
+                    display_pages = range(1, total_pages + 1)
+                else:
+                    if current_page <= 3:
+                        display_pages = range(1, 6)
+                    elif current_page >= total_pages - 2:
+                        display_pages = range(total_pages - 4, total_pages + 1)
+                    else:
+                        display_pages = range(current_page - 2, current_page + 3)
+                
+                # 번호 버튼 렌더링
+                c_idx = 1
+                for p_num in display_pages:
+                    if c_idx < 6: # 안전 장치
+                        with btn_cols[c_idx]:
+                            b_type = "primary" if p_num == current_page else "secondary"
+                            if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type):
+                                st.session_state.search_page = p_num
+                                st.rerun()
+                        c_idx += 1
+                
+                # > 다음 버튼
+                with btn_cols[6]:
+                    if st.button("▶", key="nav_next", disabled=current_page==total_pages):
+                        st.session_state.search_page += 1
+                        st.rerun()
+
+            with col_input:
+                # 직접 입력
+                new_page = st.number_input("페이지 이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_input")
+                if new_page != current_page:
+                    st.session_state.search_page = new_page
                     st.rerun()
 
 with tab_inventory:
