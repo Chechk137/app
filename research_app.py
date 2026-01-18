@@ -27,17 +27,25 @@ def load_user_data(user_id):
     if os.path.exists(file_path):
         try:
             with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                # 데이터 구조 호환성을 위해 없는 키는 기본값으로 처리
+                return {
+                    "score": data.get("score", 0),
+                    "inventory": data.get("inventory", []),
+                    "mission_id": data.get("mission_id", 1),
+                    "trash": data.get("trash", [])
+                }
         except Exception as e:
             st.error(f"데이터 로드 중 오류 발생: {e}")
-    return {"score": 0, "inventory": [], "mission_id": 1}
+    return {"score": 0, "inventory": [], "mission_id": 1, "trash": []}
 
 def save_user_data(user_id):
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     data = {
         "score": st.session_state.score,
         "inventory": st.session_state.inventory,
-        "mission_id": st.session_state.mission_id
+        "mission_id": st.session_state.mission_id,
+        "trash": st.session_state.trash
     }
     try:
         with open(file_path, "w", encoding="utf-8") as f:
@@ -257,6 +265,8 @@ if 'score' not in st.session_state:
     st.session_state['score'] = 0
 if 'inventory' not in st.session_state:
     st.session_state['inventory'] = []
+if 'trash' not in st.session_state:
+    st.session_state['trash'] = []
 if 'mission_id' not in st.session_state:
     st.session_state['mission_id'] = 1
 if 'search_results' not in st.session_state:
@@ -316,6 +326,7 @@ if not st.session_state.get("user_id"):
             st.session_state.score = saved_data["score"]
             st.session_state.inventory = saved_data["inventory"]
             st.session_state.mission_id = saved_data["mission_id"]
+            st.session_state.trash = saved_data["trash"]
             st.success(f"{user_input}님으로 로그인되었습니다.")
             st.rerun()
         else:
@@ -372,7 +383,7 @@ with st.sidebar:
        : 따옴표 검색을 통해 정확도 순으로 검색
     """)
 
-tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
+tab_search, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📚 내 서재", "🗑️ 휴지통"])
 
 with tab_search:
     col1, col2 = st.columns([4, 1])
@@ -449,7 +460,7 @@ with tab_search:
                             save_user_data(st.session_state.user_id) 
                             st.rerun()
         
-        # [수정] 페이지네이션 컨트롤러 (중앙 정렬 + 좁은 간격)
+        # 페이지네이션 컨트롤러 (중앙 정렬 + 좁은 간격)
         st.divider()
         
         # 전체를 감싸는 컬럼을 사용하여 화면 중앙에 배치
@@ -468,7 +479,6 @@ with tab_search:
                     display_pages = range(current_page - 2, current_page + 3)
 
             # 버튼들을 한 줄에 좁은 간격(small)으로 배치
-            # Layout: [Prev] [P1] [P2] [P3] [P4] [P5] [Next] [Input]
             pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
             
             # Prev Button
@@ -479,7 +489,6 @@ with tab_search:
             
             # Page Number Buttons
             for idx, p_num in enumerate(display_pages):
-                # 안전 장치: 최대 5개까지만 표시
                 if idx < 5:
                     with pg_cols[idx + 1]:
                         b_type = "primary" if p_num == current_page else "secondary"
@@ -487,13 +496,13 @@ with tab_search:
                             st.session_state.search_page = p_num
                             st.rerun()
             
-            # Next Button (Always at index 6)
+            # Next Button
             with pg_cols[6]:
                 if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
                     st.session_state.search_page += 1
                     st.rerun()
                     
-            # Direct Input (Always at index 8)
+            # Direct Input
             with pg_cols[8]:
                  new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_input")
                  if new_page != current_page:
@@ -551,10 +560,14 @@ with tab_inventory:
 
                 with c_btn2:
                     if st.button("삭제", key=f"del_{i}", use_container_width=True):
+                        # 삭제 로직: 점수 차감 후 휴지통 이동
                         deduction = paper.get('final_score', paper['display_score'])
                         st.session_state.score = max(0, st.session_state.score - deduction)
-                        st.session_state.inventory.pop(i)
-                        st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
+                        
+                        removed_paper = st.session_state.inventory.pop(i)
+                        st.session_state.trash.append(removed_paper) # 휴지통으로 이동
+                        
+                        st.toast(f"논문이 휴지통으로 이동되었습니다. {deduction}점 차감됨", icon="🗑️")
                         save_user_data(st.session_state.user_id) 
                         st.rerun()
                 
@@ -562,3 +575,43 @@ with tab_inventory:
                 
                 if paper['is_reviewed']:
                     st.info(f"분석 결과: {paper['reason']}")
+
+with tab_trash:
+    if not st.session_state.trash:
+        st.info("휴지통이 비어있습니다.")
+    
+    if st.session_state.trash:
+        if st.button("휴지통 비우기 (전체 삭제)", type="primary"):
+            st.session_state.trash = []
+            save_user_data(st.session_state.user_id)
+            st.toast("휴지통을 비웠습니다.", icon="🧹")
+            st.rerun()
+
+    cols = st.columns(2)
+    for i, paper in enumerate(st.session_state.trash):
+        with cols[i % 2]:
+            with st.container(border=True):
+                st.markdown(f"**{paper['title']}**")
+                st.caption(f"삭제됨 | {paper['journal']}")
+                
+                col_res, col_del = st.columns(2)
+                
+                with col_res:
+                    if st.button("복구", key=f"restore_{i}", use_container_width=True):
+                        restored_paper = st.session_state.trash.pop(i)
+                        st.session_state.inventory.append(restored_paper)
+                        
+                        # 복구 시 점수 다시 부여 (실수 방지 차원)
+                        restore_score = restored_paper.get('final_score', restored_paper['display_score'])
+                        st.session_state.score += restore_score
+                        
+                        st.toast(f"논문이 복구되었습니다. (+{restore_score}점)", icon="♻️")
+                        save_user_data(st.session_state.user_id)
+                        st.rerun()
+                
+                with col_del:
+                    if st.button("영구 삭제", key=f"perm_del_{i}", use_container_width=True):
+                        st.session_state.trash.pop(i)
+                        st.toast("논문이 영구 삭제되었습니다.", icon="🔥")
+                        save_user_data(st.session_state.user_id)
+                        st.rerun()
