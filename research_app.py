@@ -161,9 +161,8 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # [수정] 대량 수집 (rows=1000)
+        # 대량 수집 (rows=1000)
         url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
-        # 데이터량이 많으므로 timeout 증가
         response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
@@ -244,7 +243,7 @@ def search_crossref_api(query):
     if not is_exact_mode:
         valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
             
-    # [수정] 전체 리스트 반환 (페이지네이션은 UI에서 처리)
+    # 전체 리스트 반환 (페이지네이션은 UI에서 처리)
     return valid_papers, is_exact_mode
 
 # --- 3. Streamlit UI ---
@@ -262,7 +261,7 @@ if 'mission_id' not in st.session_state:
     st.session_state['mission_id'] = 1
 if 'search_results' not in st.session_state:
     st.session_state['search_results'] = []
-# [추가] 페이지네이션 상태
+# 페이지네이션 상태
 if 'search_page' not in st.session_state:
     st.session_state['search_page'] = 1
 
@@ -394,7 +393,7 @@ with tab_search:
                 st.error("검색 결과가 없습니다.")
 
     if st.session_state.search_results:
-        # [수정] 페이지네이션 로직 적용
+        # 페이지네이션 로직 적용
         items_per_page = 50
         total_items = len(st.session_state.search_results)
         total_pages = max(1, math.ceil(total_items / items_per_page))
@@ -450,57 +449,54 @@ with tab_search:
                             save_user_data(st.session_state.user_id) 
                             st.rerun()
         
-        # [수정] 페이지네이션 컨트롤러 (버튼 + 직접 입력)
+        # [수정] 페이지네이션 컨트롤러 (중앙 정렬 + 좁은 간격)
         st.divider()
-        nav_container = st.container()
         
-        with nav_container:
-            col_nav, col_input = st.columns([5, 2])
-            
-            with col_nav:
-                # 최대 7개 버튼 (이전 + 5개 번호 + 다음)을 위한 컬럼
-                # [수정] 버튼 간격을 좁히기 위해 컬럼 비율을 [1,1,1,1,1,1,1, 10] 식으로 설정하여 앞쪽으로 모음
-                btn_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 8])
-                
-                # < 이전 버튼
-                with btn_cols[0]:
-                    if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
-                        st.session_state.search_page -= 1
-                        st.rerun()
-                
-                # 페이지 번호 계산 (현재 페이지 주변 5개)
-                # 전체 페이지가 5개 이하면 전체 표시
-                if total_pages <= 5:
-                    display_pages = range(1, total_pages + 1)
+        # 전체를 감싸는 컬럼을 사용하여 화면 중앙에 배치
+        _, nav_col, _ = st.columns([1, 5, 1])
+        
+        with nav_col:
+            # 페이지 번호 계산
+            if total_pages <= 5:
+                display_pages = range(1, total_pages + 1)
+            else:
+                if current_page <= 3:
+                    display_pages = range(1, 6)
+                elif current_page >= total_pages - 2:
+                    display_pages = range(total_pages - 4, total_pages + 1)
                 else:
-                    if current_page <= 3:
-                        display_pages = range(1, 6)
-                    elif current_page >= total_pages - 2:
-                        display_pages = range(total_pages - 4, total_pages + 1)
-                    else:
-                        display_pages = range(current_page - 2, current_page + 3)
-                
-                # 번호 버튼 렌더링
-                c_idx = 1
-                for p_num in display_pages:
-                    if c_idx < 6: # 안전 장치
-                        with btn_cols[c_idx]:
-                            b_type = "primary" if p_num == current_page else "secondary"
-                            if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
-                                st.session_state.search_page = p_num
-                                st.rerun()
-                        c_idx += 1
-                
-                # > 다음 버튼
-                with btn_cols[6]:
-                    if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
-                        st.session_state.search_page += 1
-                        st.rerun()
+                    display_pages = range(current_page - 2, current_page + 3)
 
-            with col_input:
-                # 직접 입력
-                new_page = st.number_input("페이지 이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_input")
-                if new_page != current_page:
+            # 버튼들을 한 줄에 좁은 간격(small)으로 배치
+            # Layout: [Prev] [P1] [P2] [P3] [P4] [P5] [Next] [Input]
+            pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
+            
+            # Prev Button
+            with pg_cols[0]:
+                if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
+                    st.session_state.search_page -= 1
+                    st.rerun()
+            
+            # Page Number Buttons
+            for idx, p_num in enumerate(display_pages):
+                # 안전 장치: 최대 5개까지만 표시
+                if idx < 5:
+                    with pg_cols[idx + 1]:
+                        b_type = "primary" if p_num == current_page else "secondary"
+                        if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
+                            st.session_state.search_page = p_num
+                            st.rerun()
+            
+            # Next Button (Always at index 6)
+            with pg_cols[6]:
+                if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
+                    st.session_state.search_page += 1
+                    st.rerun()
+                    
+            # Direct Input (Always at index 8)
+            with pg_cols[8]:
+                 new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_input")
+                 if new_page != current_page:
                     st.session_state.search_page = new_page
                     st.rerun()
 
