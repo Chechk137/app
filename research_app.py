@@ -344,64 +344,17 @@ with st.sidebar:
        : 참고문헌 수 10개 이상 (함정 주의)
     5. **시의성/인용 (Opportunity)**
        : 최신+저인용은 기회, 과거+무인용은 함정
-    """)
+    """)  
+    
     st.markdown("#### 📊 검색 방법")
     st.markdown("""
     1. **일반 검색**
-       : AI 추천 지수 높은 순으로 추천
+       : AI 추천 지수가 높은 순으로 추천
     2. **"[키워드]"**
-       : 따옴표               st.session_state.score = saved_data["score"]
-                st.session_state.inventory = saved_data["inventory"]
-                st.session_state.mission_id = saved_data["mission_id"]
-                st.success(f"{user_input}님으로 로그인되었습니다.")
-                st.rerun()
-            else:
-                st.warning("이름을 입력해주세요.")
-        st.stop()
-
-    st.info(f"👤 **{st.session_state.user_id}** 연구원")
-    if st.button("로그아웃 (저장됨)", use_container_width=True):
-        save_user_data(st.session_state.user_id)
-        st.session_state.user_id = None
-        st.rerun()
-
-    st.divider()
-    
-    current_level, progress, next_score = get_level_info(st.session_state.score)
-    st.metric("연구 레벨", f"Lv. {current_level}")
-    st.write(f"현재 점수: {st.session_state.score} / {next_score}")
-    st.progress(progress)
-    
-    st.divider()
-    st.metric("보유 논문", f"{len(st.session_state.inventory)}편")
-    
-    current_mission = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
-    if current_mission:
-        st.info(f"🎯 미션: {current_mission['text']}")
-    else:
-        st.success("🏆 모든 미션 완료!")
-
-    st.divider()
-    st.markdown("#### 📊 평가 가이드")
-    st.markdown("""
-    1. **증거 적합성 (Evidence)**
-       : in vivo, efficacy 등 실험 키워드 포함
-    2. **저널 권위 (Prestige)**
-       : Nature, Science 등 Top Tier 저널
-    3. **연구 규모 (Collaboration)**
-       : 저자 5인 이상 참여
-    4. **데이터 신뢰도 (Reliability)**
-       : 참고문헌 수 10개 이상 (함정 주의)
-    5. **시의성/인용 (Opportunity)**
-       : 최신+저인용은 기회, 과거+무인용은 함정
+       : 따옴표 검색을 통해 정확도 순으로 검색
     """)
-    st.markdown("#### 📊 검색 방법")
-    st.markdown("""
-    1. **일반 검색**
-       : AI 추천 지수 높은 순으로 추천
-    2. **"[키워드]"**
-       : 따옴표 사용하여 검색하여 정확도 순으로 검색
-    """)
+
+
 
 tab_search, tab_inventory = st.tabs(["🔍 논문 검색", "📚 내 서재"])
 
@@ -526,4 +479,3 @@ with tab_inventory:
                 
                 if paper['is_reviewed']:
                     st.info(f"분석 결과: {paper['reason']}")
-
