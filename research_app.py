@@ -160,7 +160,7 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=40&sort=relevance"
+        url = f"https://api.crossref.org/works?query={clean_query}&rows=100&sort=relevance"
         response = requests.get(url, timeout=5)
         data = response.json()
     except Exception as e:
@@ -241,7 +241,8 @@ def search_crossref_api(query):
     if not is_exact_mode:
         valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
             
-    return valid_papers[:12], is_exact_mode
+        # [수정] 최종 반환 개수 증가 (12 -> 20)
+    return valid_papers[:20], is_exact_mode
 
 # --- 3. Streamlit UI ---
 
@@ -489,4 +490,5 @@ with tab_inventory:
                 
                 if paper['is_reviewed']:
                     st.info(f"분석 결과: {paper['reason']}")
+
 
