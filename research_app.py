@@ -155,7 +155,7 @@ def evaluate_paper(paper_data):
     }
 
 def search_crossref_api(query):
-    # [수정] 따옴표 검색 감지 (정확도 순 정렬 모드)
+    # 따옴표 검색 감지
     is_exact_mode = query.startswith('"') and query.endswith('"')
     clean_query = query.strip('"') if is_exact_mode else query
     
@@ -238,12 +238,8 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
-    # [수정] 정렬 로직 분기
     if not is_exact_mode:
-        # 일반 모드: AI 추천 점수 순 (잠재력 높은 순)
         valid_papers.sort(key=lambda x: x['ai_score'], reverse=True)
-    
-    # 따옴표 모드일 때는 API가 준 순서(Relevance) 그대로 유지
             
     return valid_papers[:12], is_exact_mode
 
@@ -251,16 +247,17 @@ def search_crossref_api(query):
 
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
+# 세션 상태 초기화
+if 'user_id' not in st.session_state:
+    st.session_state['user_id'] = None
 if 'score' not in st.session_state:
-    st.session_state.score = 0
+    st.session_state['score'] = 0
 if 'inventory' not in st.session_state:
-    st.session_state.inventory = []
+    st.session_state['inventory'] = []
 if 'mission_id' not in st.session_state:
-    st.session_state.mission_id = 1
+    st.session_state['mission_id'] = 1
 if 'search_results' not in st.session_state:
-    st.session_state.search_results = []
-if 'is_exact_search' not in st.session_state:
-    st.session_state.is_exact_search = False
+    st.session_state['search_results'] = []
 
 def get_level_info(score):
     level_threshold = 500
@@ -287,14 +284,16 @@ def check_mission(paper, action):
         st.session_state.score += current_m['reward']
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
-        if st.session_state.user_id:
+        # [수정] user_id 존재 여부 확인 후 저장
+        if st.session_state.get("user_id"):
             save_user_data(st.session_state.user_id)
 
 with st.sidebar:
     st.title("🎓 연구 시뮬레이터")
     st.caption("Outlier Hunter Edition")
     
-    if not st.session_state.user_id:
+    # [수정] 안전한 속성 접근 (.get 사용)
+    if not st.session_state.get("user_id"):
         st.markdown("### 👋 환영합니다!")
         user_input = st.text_input("연구자 이름 (ID)을 입력하세요", placeholder="예: Dr.Kim")
         if st.button("로그인 / 시작하기"):
@@ -367,7 +366,6 @@ with tab_search:
                 st.error("검색 결과가 없습니다.")
 
     if st.session_state.search_results:
-        # 정렬 기준 안내 메시지
         count = len(st.session_state.search_results)
         sort_mode = "정확도(Relevance) 순" if st.session_state.is_exact_search else "AI 추천(Potential) 순"
         st.caption(f"검색 결과 {count}건 ({sort_mode})")
