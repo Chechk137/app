@@ -459,11 +459,12 @@ with tab_search:
             
             with col_nav:
                 # 최대 7개 버튼 (이전 + 5개 번호 + 다음)을 위한 컬럼
-                btn_cols = st.columns(7)
+                # [수정] 버튼 간격을 좁히기 위해 컬럼 비율을 [1,1,1,1,1,1,1, 10] 식으로 설정하여 앞쪽으로 모음
+                btn_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 8])
                 
                 # < 이전 버튼
                 with btn_cols[0]:
-                    if st.button("◀", key="nav_prev", disabled=current_page==1):
+                    if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
                         st.session_state.search_page -= 1
                         st.rerun()
                 
@@ -485,14 +486,14 @@ with tab_search:
                     if c_idx < 6: # 안전 장치
                         with btn_cols[c_idx]:
                             b_type = "primary" if p_num == current_page else "secondary"
-                            if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type):
+                            if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
                                 st.session_state.search_page = p_num
                                 st.rerun()
                         c_idx += 1
                 
                 # > 다음 버튼
                 with btn_cols[6]:
-                    if st.button("▶", key="nav_next", disabled=current_page==total_pages):
+                    if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
                         st.session_state.search_page += 1
                         st.rerun()
 
