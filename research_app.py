@@ -353,7 +353,8 @@ with st.sidebar:
     **3. Bias Penalty (편향)**
     : 인기도와 내실의 차이. 양수면 과열(Bubble), 음수면 저평가(Hidden Gem).
     """)
-        st.markdown("""
+    st.markdown("#### 🔍 Raw score 지표")
+    st.markdown("""
     1. 증거 적합성 지표 (Evidence Index)
        : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
     2. 저널 권위 지표 (Prestige Index)
