@@ -163,8 +163,8 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # 대량 수집 (rows=200, 통계용)
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=200&sort=relevance"
+        # 대량 수집 (rows=2000, 통계용)
+        url = f"https://api.crossref.org/works?query={clean_query}&rows=2000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
@@ -353,6 +353,27 @@ with st.sidebar:
     **3. Bias Penalty (편향)**
     : 인기도와 내실의 차이. 양수면 과열(Bubble), 음수면 저평가(Hidden Gem).
     """)
+        st.markdown("""
+    1. 증거 적합성 지표 (Evidence Index)
+       : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
+    2. 저널 권위 지표 (Prestige Index)
+       : Nature, Science 등 학계에서 인정받는 최상위 저널
+    3. 연구 규모 지표 (Collaboration Index)
+       : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
+    4. 데이터 신뢰도 지표 (Reliability Index)
+       : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
+    5. 시의성 대비 인용 지표 (Opportunity Index)
+       : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
+    """)
+    
+    st.markdown("#### 📊 검색 방법")
+    st.markdown("""
+    1. 일반 검색
+       : AI 추천 지수가 높은 순으로 추천
+    2. "키워드"
+       : 따옴표 검색을 통해 정확도 순으로 검색
+    """)
+
 
 tab_search, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📚 내 서재", "🗑️ 휴지통"])
 
