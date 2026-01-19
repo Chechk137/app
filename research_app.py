@@ -163,23 +163,31 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # 대량 수집 (rows=2000, 통계용)
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=2000&sort=relevance"
+        # 대량 수집 (rows=1000, 통계용)
+        url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
         st.error(f"API 연결 중 오류가 발생했습니다: {e}")
         return [], {}, False
 
-    if not data.get('message') or not data['message'].get('items'):
+    # [수정] 데이터 유효성 검사 강화 (NoneType 오류 방지)
+    if not data or not isinstance(data, dict):
+        return [], {}, False
+        
+    message = data.get('message')
+    if not message or not isinstance(message, dict):
+        return [], {}, False
+        
+    items = message.get('items')
+    if not items:
         return [], {}, False
 
-    items = data['message']['items']
     valid_papers = []
     current_year = get_current_year()
 
-    # --- [New] 편향 요약 통계 계산 ---
-    total_results = data['message'].get('total-results', 0)
+    # --- 편향 요약 통계 계산 ---
+    total_results = message.get('total-results', 0)
     citations_list = []
     years_list = []
 
@@ -374,7 +382,6 @@ with st.sidebar:
     2. "키워드"
        : 따옴표 검색을 통해 정확도 순으로 검색
     """)
-
 
 tab_search, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📚 내 서재", "🗑️ 휴지통"])
 
