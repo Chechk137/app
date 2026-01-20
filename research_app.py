@@ -118,7 +118,16 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 데이터 부족"
 
-    # --- 점수 산정 로직 ---
+    # --- [New] 점수 분리 로직 ---
+    
+    # 점수 구성 요소를 추적하기 위한 딕셔너리
+    score_breakdown = {
+        "Base": 40,
+        "Evidence": 0,
+        "Team": 0,
+        "Volume Penalty": 0,
+        "Integrity Penalty": 0
+    }
 
     # 1. Raw Score (인기도)
     raw_score = min(99, int(10 + (math.log(citation_count + 1) * 15)))
@@ -126,26 +135,38 @@ def evaluate_paper(paper_data):
 
     # 2. Debiased Score (내실)
     debiased_base = 40
-    if has_evidence: debiased_base += 30 
-    if is_big_team: debiased_base += 10
+    if has_evidence: 
+        debiased_base += 30 
+        score_breakdown["Evidence"] = 30
+    if is_big_team: 
+        debiased_base += 10
+        score_breakdown["Team"] = 10
     
+    # 문헌량 편향 제거 (희소성)
     volume_discount = min(30, int(math.log(citation_count + 1) * 5))
     
+    # 최신 연구 보정
     if age <= 2: volume_discount = int(volume_discount * 0.2)
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
+    score_breakdown["Volume Penalty"] = -volume_discount
     debiased_score = debiased_base - volume_discount
     
+    # 함정/정보부족 페널티
     if integrity_status != "valid":
+        penalty = debiased_score - 10
         debiased_score = 10
+        score_breakdown["Integrity Penalty"] = -penalty
         risk_reason = risk_reason or "데이터 신뢰도 낮음"
     elif age > 10 and citation_count < 5:
+        penalty = debiased_score - 5
         debiased_score = 5
+        score_breakdown["Integrity Penalty"] = -penalty
         risk_reason = "도태된 연구 (Old & Low Cited)"
 
     debiased_score = max(5, min(99, debiased_score))
 
-    # 3. Bias Penalty
+    # 3. Bias Penalty & Type
     bias_penalty = raw_score - debiased_score
     
     potential_type = "normal"
@@ -168,7 +189,10 @@ def evaluate_paper(paper_data):
         "has_evidence": has_evidence,
         "is_top_tier": is_top_tier,
         "is_big_team": is_big_team,
-        "integrity_status": integrity_status
+        "integrity_status": integrity_status,
+        "score_breakdown": score_breakdown, # 세부 점수 반환
+        "age": age, # 분석용
+        "citation_count": citation_count # 분석용
     }
 
 def search_crossref_api(query):
@@ -176,7 +200,6 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # 대량 수집 (rows=1000, 통계용)
         url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
@@ -300,7 +323,6 @@ def get_level_info(score):
 def check_mission(paper, action):
     current_m = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
     if not current_m: return
-
     completed = False
     m_type = current_m['type']
     if m_type == "journal" and action == "collect" and paper['is_top_tier']: completed = True
@@ -384,7 +406,7 @@ with st.sidebar:
        : 따옴표 검색을 통해 정확도 순으로 검색
     """)
 
-tab_search, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📚 내 서재", "🗑️ 휴지통"])
+tab_search, tab_analysis, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📊 지표 분석", "📚 내 서재", "🗑️ 휴지통"])
 
 with tab_search:
     col1, col2 = st.columns([4, 1])
@@ -407,11 +429,10 @@ with tab_search:
     if st.session_state.search_results:
         summary = st.session_state.bias_summary
         
-        # 편향 요약 박스 (PubMed 실제 데이터 표시)
+        # 편향 요약 박스
         with st.container(border=True):
             st.markdown("### 🔍 Search Bias Summary")
             bc1, bc2, bc3 = st.columns(3)
-            # 쉼표(,) 포맷팅 적용하여 보기 쉽게 표시
             pub_cnt = summary['pubmed_count']
             pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
             
@@ -426,7 +447,7 @@ with tab_search:
 
         st.divider()
 
-        # 정렬 옵션 선택 (라디오 버튼)
+        # 정렬 옵션 선택
         st.markdown("##### 🔃 정렬 기준 선택")
         sort_col, _ = st.columns([2, 1])
         with sort_col:
@@ -438,7 +459,6 @@ with tab_search:
                 key="sort_selector"
             )
         
-        # 정렬 로직 적용
         if sort_opt == "내실 (Debiased)":
             st.session_state.search_results.sort(key=lambda x: x['debiased_score'], reverse=True)
         elif sort_opt == "인기 (Raw)":
@@ -531,6 +551,102 @@ with tab_search:
                  if new_page != current_page:
                     st.session_state.search_page = new_page
                     st.rerun()
+
+# --- [New] 지표 분석 탭 ---
+with tab_analysis:
+    if not st.session_state.search_results:
+        st.info("먼저 '논문 검색' 탭에서 검색을 수행해주세요.")
+    else:
+        st.markdown("### 🛠️ 맞춤형 지표 분석")
+        st.markdown("각 지표의 가중치를 조절하여 나만의 기준(Custom Score)으로 논문을 재평가하고 정렬합니다.")
+        
+        # 컨트롤 패널
+        with st.container(border=True):
+            col_w1, col_w2, col_w3 = st.columns(3)
+            with col_w1:
+                w_evidence = st.slider("🔬 증거 (Evidence)", 0.0, 3.0, 1.0, help="실험적 근거 유무")
+            with col_w2:
+                w_prestige = st.slider("👑 권위 (Prestige)", 0.0, 3.0, 1.0, help="Top Tier 저널 여부")
+            with col_w3:
+                w_recency = st.slider("📅 최신성 (Recency)", 0.0, 3.0, 1.0, help="최신 논문 우대")
+            
+            col_w4, col_w5 = st.columns(2)
+            with col_w4:
+                w_team = st.slider("👥 규모 (Team)", 0.0, 3.0, 1.0, help="대규모 연구팀")
+            with col_w5:
+                w_scarcity = st.slider("💎 희소성 (Scarcity)", 0.0, 3.0, 1.0, help="인용이 적은 원석 발굴")
+
+        # 재계산 로직
+        analyzed_papers = []
+        for paper in st.session_state.search_results:
+            # 점수 구성 요소 가져오기 (없으면 0 처리)
+            details = paper.get('score_breakdown', {})
+            base = details.get('Base', 40)
+            ev_score = details.get('Evidence', 0)
+            team_score = details.get('Team', 0)
+            vol_penalty = details.get('Volume Penalty', 0)
+            
+            # Recency Score 계산 (기존엔 volume discount 감소로만 반영되었음, 여기선 별도 가산점 부여)
+            age_score = max(0, (5 - paper.get('age', 5)) * 10) # 5년 이내면 가산점 (최신일수록 높음)
+            
+            # Scarcity Score (인용 적을수록 높음)
+            scarcity_score = max(0, (50 - paper.get('citation_count', 0))) 
+            if scarcity_score > 50: scarcity_score = 50 # 상한선
+            
+            # 사용자 가중치 적용
+            custom_score = (
+                base +
+                (ev_score * w_evidence) +
+                (20 * int(paper['is_top_tier']) * w_prestige) + # Top Tier 보너스 직접 계산
+                (team_score * w_team) +
+                (age_score * w_recency) +
+                (scarcity_score * w_scarcity) +
+                vol_penalty # 원래 페널티는 그대로 적용 (옵션으로 뺄 수도 있음)
+            )
+            
+            paper_copy = paper.copy()
+            paper_copy['custom_score'] = int(custom_score)
+            analyzed_papers.append(paper_copy)
+            
+        # 정렬
+        analyzed_papers.sort(key=lambda x: x['custom_score'], reverse=True)
+        
+        st.divider()
+        st.caption(f"재평가된 상위 20개 결과")
+        
+        for i, paper in enumerate(analyzed_papers[:20]):
+            with st.container(border=True):
+                c1, c2 = st.columns([4, 1])
+                with c1:
+                    st.markdown(f"**{i+1}. {paper['title']}**")
+                    st.caption(f"{paper['year']} | {paper['journal']} | Custom Score: {paper['custom_score']}")
+                    
+                    # 상세 점수 시각화 (Expander)
+                    with st.expander("점수 상세 구성 보기"):
+                        details = paper.get('score_breakdown', {})
+                        # 차트용 데이터 생성
+                        chart_data = {
+                            "Base": details.get('Base', 40),
+                            "Evidence": details.get('Evidence', 0) * w_evidence,
+                            "Prestige": (20 if paper['is_top_tier'] else 0) * w_prestige,
+                            "Team": details.get('Team', 0) * w_team,
+                            "Recency": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
+                            "Scarcity": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
+                        }
+                        st.bar_chart(chart_data)
+
+                with c2:
+                    st.metric("Custom", f"{paper['custom_score']}")
+                    is_owned = any(p['id'] == paper['id'] for p in st.session_state.inventory)
+                    if is_owned:
+                        st.button("보유중", key=f"an_owned_{i}", disabled=True, use_container_width=True)
+                    else:
+                        if st.button("수집", key=f"an_collect_{i}", type="secondary", use_container_width=True):
+                            st.session_state.inventory.append(paper)
+                            st.session_state.score += paper['debiased_score']
+                            check_mission(paper, "collect")
+                            save_user_data(st.session_state.user_id)
+                            st.rerun()
 
 with tab_inventory:
     if not st.session_state.inventory: st.info("수집된 논문이 없습니다.")
