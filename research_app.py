@@ -11,7 +11,7 @@ from collections import Counter
 # --- 1. 설정 및 상수 ---
 
 MISSIONS = [
-    {"id": 1, "text": "Top Tier 저널 논문 1편 수집", "type": "journal", "target": "top_tier", "count": 1, "reward": 150},
+    {"id": 1, "text": "인용 100회 이상 논문 1편 수집", "type": "citation", "target": 100, "count": 1, "reward": 150},
     {"id": 2, "text": "5인 이상 협업 연구 수집", "type": "team", "target": 5, "count": 1, "reward": 100},
     {"id": 3, "text": "함정 논문 피하기 (검증 실패 0회)", "type": "avoid_trap", "target": "trap", "count": 0, "reward": 0},
     {"id": 4, "text": "연구 점수 1500점 달성", "type": "score", "target": 1500, "count": 1500, "reward": 500},
@@ -81,6 +81,7 @@ def evaluate_paper(paper_data):
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
+    # 1. 키워드 (Evidence)
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
         'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
@@ -88,9 +89,13 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
+    # [삭제됨] Prestige (저널 권위) 관련 로직 제거
+
+    # 2. 연구팀 규모 (Team)
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
 
+    # 3. 데이터 신뢰도 (Reliability)
     ref_count = paper_data.get('ref_count') 
     integrity_status = "valid"
     risk_reason = ""
@@ -104,7 +109,8 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 부족"
 
-    # Score Calculation
+    # --- 점수 산정 로직 ---
+    
     score_breakdown = {
         "Base": 30,
         "Evidence": 0,
@@ -113,21 +119,22 @@ def evaluate_paper(paper_data):
         "Integrity Penalty": 0
     }
 
-    # 1. Raw Score
+    # 1. Raw Score (인기도 중심)
     raw_score = min(99, int(5 + (math.log(citation_count + 1) * 15)))
 
-    # 2. Debiased Score
+    # 2. Debiased Score (내실 중심)
     debiased_base = 30
     if has_evidence: 
-        debiased_base += 25 
-        score_breakdown["Evidence"] = 25
+        debiased_base += 30 
+        score_breakdown["Evidence"] = 30
     if is_big_team: 
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    # Prestige logic removed
-
+    # 문헌량 편향 제거
     volume_discount = min(25, int(math.log(citation_count + 1) * 4))
+    
+    # 최신 연구 보정
     if age <= 2: volume_discount = int(volume_discount * 0.1)
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
@@ -278,7 +285,7 @@ def search_crossref_api(query):
 
 # --- 3. Streamlit UI ---
 
-st.set_page_config(page_title="연구 시뮬레이터", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
 if 'user_id' not in st.session_state: st.session_state['user_id'] = None
 if 'score' not in st.session_state: st.session_state['score'] = 0
@@ -377,13 +384,11 @@ with st.sidebar:
     st.markdown("""
     1. 증거 적합성 지표 (Evidence Index)
        : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
-    2. 저널 권위 지표 (Prestige Index)
-       : Nature, Science 등 학계에서 인정받는 최상위 저널
-    3. 연구 규모 지표 (Collaboration Index)
+    2. 연구 규모 지표 (Collaboration Index)
        : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
-    4. 데이터 신뢰도 지표 (Reliability Index)
+    3. 데이터 신뢰도 지표 (Reliability Index)
        : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
-    5. 시의성 대비 인용 지표 (Opportunity Index)
+    4. 시의성 대비 인용 지표 (Opportunity Index)
        : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
     """)
     st.markdown("#### 📊 검색 방법")
@@ -493,7 +498,7 @@ with tab_search:
                     if is_owned:
                         st.button("보유중", key=f"owned_{unique_key_idx}", disabled=True, use_container_width=True)
                     else:
-                        if st.button("수집", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
+                        if st.button("수집하기", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['debiased_score']
                             check_mission(paper, "collect")
@@ -544,6 +549,10 @@ with tab_analysis:
         if 'analysis_weights' not in st.session_state:
             st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
             st.session_state.current_preset = "⚖️ 밸런스"
+        
+        # 키 복구 로직 (prestige가 빠졌으므로 해당 키는 무시하거나 제거)
+        current_weights = st.session_state.analysis_weights
+        if "prestige" in current_weights: del current_weights["prestige"]
 
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
         
@@ -576,12 +585,12 @@ with tab_analysis:
         w = st.session_state.analysis_weights
         
         with st.container(border=True):
-            col_w1, col_w3 = st.columns(2)
+            col_w1, col_w2 = st.columns(2)
             with col_w1: w["evidence"] = st.slider("증거", 0.0, 3.0, w["evidence"])
-            with col_w3: w["recency"] = st.slider("최신성", 0.0, 3.0, w["recency"])
-            col_w4, col_w5 = st.columns(2)
-            with col_w4: w["team"] = st.slider("규모", 0.0, 3.0, w["team"])
-            with col_w5: w["scarcity"] = st.slider("희소성", 0.0, 3.0, w["scarcity"])
+            with col_w2: w["recency"] = st.slider("최신성", 0.0, 3.0, w["recency"])
+            col_w3, col_w4 = st.columns(2)
+            with col_w3: w["team"] = st.slider("규모", 0.0, 3.0, w["team"])
+            with col_w4: w["scarcity"] = st.slider("희소성", 0.0, 3.0, w["scarcity"])
 
         w_evidence = w["evidence"]
         w_recency = w["recency"]
@@ -622,13 +631,13 @@ with tab_analysis:
                     st.caption(f"{paper['year']} | {paper['journal']} | 사용자 점수: {paper['custom_score']}")
                     with st.expander("점수 상세 구성 보기"):
                         details = paper.get('score_breakdown', {})
-                        # [Modification] Chart Keys: Korean Only
+                        # [Modification] Chart Keys: English (Korean) format
                         chart_data = {
-                            "기본": details.get('Base', 40),
-                            "증거": details.get('Evidence', 0) * w_evidence,
-                            "규모": details.get('Team', 0) * w_team,
-                            "최신성": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
-                            "희소성": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
+                            "Base (기본)": details.get('Base', 40),
+                            "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
+                            "Team (규모)": details.get('Team', 0) * w_team,
+                            "Recency (최신성)": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
+                            "Scarcity (희소성)": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
                         }
                         st.bar_chart(chart_data, horizontal=True)
                 with c2:
