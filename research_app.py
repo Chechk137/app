@@ -116,10 +116,10 @@ def evaluate_paper(paper_data):
         "Integrity Penalty": 0
     }
 
-    # 1. Raw Score (인기도 중심)
+    # 1. Raw Score (인기도 중심) -> Impact
     raw_score = min(99, int(5 + (math.log(citation_count + 1) * 15)))
 
-    # 2. Debiased Score (내실 중심)
+    # 2. Debiased Score (내실 중심) -> Potential
     debiased_base = 30
     if has_evidence: 
         debiased_base += 30 
@@ -294,7 +294,7 @@ if 'bias_summary' not in st.session_state: st.session_state['bias_summary'] = {}
 if 'search_page' not in st.session_state: st.session_state['search_page'] = 1
 if 'analysis_page' not in st.session_state: st.session_state['analysis_page'] = 1
 if 'is_exact_search' not in st.session_state: st.session_state['is_exact_search'] = False
-if 'sort_option' not in st.session_state: st.session_state['sort_option'] = "내실"
+if 'sort_option' not in st.session_state: st.session_state['sort_option'] = "Potential"
 if 'analysis_weights' not in st.session_state: st.session_state['analysis_weights'] = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
 if 'current_preset' not in st.session_state: st.session_state['current_preset'] = "⚖️ 밸런스"
 
@@ -361,34 +361,34 @@ with st.sidebar:
     
     st.markdown("#### 🔍 평가 지표 가이드")
     st.markdown("""
-    **1. Raw Score (인기도)**
-    : 기존 검색 엔진 점수. 인용수와 저널 인지도에 비례.
+    **1. Impact (영향력)**
+    : 기존의 인기도 점수(Raw Score). 인용수와 저널 인지도 등 학계에서의 현재 위상을 반영합니다.
     
-    **2. Debiased Score (내실)**
-    : 문헌량 거품을 뺀 진짜 가치. 증거와 희소성 중심.
+    **2. Potential (잠재력)**
+    : 인용 거품을 제거한 내실 점수(Debiased Score). 증거 기반의 희소성과 미래 가치를 평가합니다.
     
     **3. Bias Penalty (편향)**
-    : 인기도와 내실의 차이. 양수면 과열(Bubble), 음수면 저평가(Hidden Gem).
+    : Impact와 Potential의 괴리. 양수면 과열(Bubble), 음수면 저평가(Hidden Gem)된 연구입니다.
     """)
-    st.markdown("#### 🔍 Raw score 지표")
+    st.markdown("#### 🔍 세부 지표")
     st.markdown("""
     1. 증거 적합성 지표 (Evidence Index)
-       : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
+        : 실험적 검증(in vivo 등) 암시 키워드 포함 여부
     2. 저널 권위 지표 (Prestige Index)
-       : Nature, Science 등 학계에서 인정받는 최상위 저널
+        : 주요 학술지 및 저널의 영향력
     3. 연구 규모 지표 (Collaboration Index)
-       : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
+        : 5인 이상 대규모 연구팀 여부
     4. 데이터 신뢰도 지표 (Reliability Index)
-       : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
+        : 참고문헌 수 기반의 메타데이터 신뢰성 검증
     5. 시의성 대비 인용 지표 (Opportunity Index)
-       : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
+        : 발행 연도 대비 인용 추이 분석 (기회 vs 함정)
     """)
     st.markdown("#### 📊 검색 방법")
     st.markdown("""
     1. 일반 검색
-       : AI 추천 지수가 높은 순으로 추천
+        : AI 추천 지수(Potential)가 높은 순으로 추천
     2. "키워드"
-       : 따옴표 검색을 통해 정확도 순으로 검색
+        : 따옴표 검색 시 정확도 순으로 결과 노출
     """)
 
 tab_search, tab_analysis, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📊 지표 분석", "📚 내 서재", "🗑️ 휴지통"])
@@ -408,7 +408,7 @@ with tab_search:
             st.session_state.bias_summary = summary
             st.session_state.is_exact_search = is_exact
             st.session_state.search_page = 1 
-            st.session_state.sort_option = "정확도" if is_exact else "내실"
+            st.session_state.sort_option = "정확도" if is_exact else "Potential"
             if not results: st.error("검색 결과가 없습니다.")
 
     if st.session_state.search_results:
@@ -418,11 +418,11 @@ with tab_search:
             bc1, bc2, bc3 = st.columns(3)
             pub_cnt = summary['pubmed_count']
             pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
-            with bc1: st.metric("PubMed 논문 수 (실제)", pub_cnt_str)
+            with bc1: st.metric("PubMed 논문 수", pub_cnt_str)
             with bc2: st.metric("평균 인용수 (Top 200)", f"{summary['avg_citations']:,}회")
             with bc3: st.metric("연구 집중 시기", summary['period'])
             if summary['is_high_exposure']:
-                st.warning("⚠ **High Exposure Topic**: 이 주제는 연구가 매우 활발하여, 상위 노출 논문이 과대평가(Bias)되었을 가능성이 큽니다. Debiased Score를 참고하여 내실 있는 연구를 선별하세요.")
+                st.warning("⚠ **High Exposure Topic**: 연구가 매우 활발하여, 상위 노출 논문의 Impact(영향력)가 과대평가되었을 가능성이 큽니다. Potential(잠재력) 지표를 참고하세요.")
             else:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
@@ -432,15 +432,15 @@ with tab_search:
         with sort_col:
             sort_opt = st.radio(
                 "정렬 기준", 
-                ["내실", "인기", "최신", "정확도"], 
+                ["Potential (잠재력)", "Impact (영향력)", "최신", "정확도"], 
                 horizontal=True, 
                 label_visibility="collapsed", 
                 key="sort_selector"
             )
         
-        if sort_opt == "내실":
+        if "Potential" in sort_opt:
             st.session_state.search_results.sort(key=lambda x: x['debiased_score'], reverse=True)
-        elif sort_opt == "인기":
+        elif "Impact" in sort_opt:
             st.session_state.search_results.sort(key=lambda x: x['raw_score'], reverse=True)
         elif sort_opt == "최신":
             st.session_state.search_results.sort(key=lambda x: x['year'], reverse=True)
@@ -477,8 +477,8 @@ with tab_search:
 
                 with c2:
                     col_raw, col_deb = st.columns(2)
-                    with col_raw: st.metric("인기도", f"{paper['raw_score']}", help="검색 엔진이 선호하는 인기도 점수")
-                    with col_deb: st.metric("내실", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}", help="문헌량 거품을 뺀 진짜 내실 점수")
+                    with col_raw: st.metric("Impact", f"{paper['raw_score']}", help="현재 학계에서의 영향력 및 인기도 (Raw Score)")
+                    with col_deb: st.metric("Potential", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}", help="미래 가치 및 잠재력 (Debiased Score)")
                     if paper['bias_penalty'] > 20: st.caption("⚠ 과열됨")
 
                     is_owned = any(p['id'] == paper['id'] for p in st.session_state.inventory)
@@ -531,7 +531,7 @@ with tab_analysis:
         st.info("먼저 '논문 검색' 탭에서 검색을 수행해주세요.")
     else:
         st.markdown("### 🛠️ 맞춤형 지표 분석")
-        st.markdown("각 지표의 가중치를 조절하여 나만의 기준(Custom Score)으로 논문을 재평가하고 정렬합니다.")
+        st.markdown("각 지표의 가중치를 조절하여 나만의 기준(Custom Potential)으로 논문을 재평가하고 정렬합니다.")
         
         if 'analysis_weights' not in st.session_state:
             st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
