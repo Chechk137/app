@@ -81,7 +81,6 @@ def evaluate_paper(paper_data):
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
-    # 1. 키워드 (Evidence)
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
         'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
@@ -89,13 +88,9 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
-    # [삭제됨] Prestige (저널 권위) 관련 로직 제거
-
-    # 2. 연구팀 규모 (Team)
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
 
-    # 3. 데이터 신뢰도 (Reliability)
     ref_count = paper_data.get('ref_count') 
     integrity_status = "valid"
     risk_reason = ""
@@ -109,10 +104,9 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 부족"
 
-    # --- 점수 산정 로직 ---
-    
+    # Score Calculation
+    # [수정] Base 점수 항목 제거
     score_breakdown = {
-        "Base": 30,
         "Evidence": 0,
         "Team": 0,
         "Volume Penalty": 0,
@@ -123,7 +117,8 @@ def evaluate_paper(paper_data):
     raw_score = min(99, int(5 + (math.log(citation_count + 1) * 15)))
 
     # 2. Debiased Score (내실 중심)
-    debiased_base = 30
+    # [수정] 기본 점수(Base) 제거하고 0부터 시작
+    debiased_base = 0
     if has_evidence: 
         debiased_base += 30 
         score_breakdown["Evidence"] = 30
@@ -131,10 +126,7 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    # 문헌량 편향 제거
     volume_discount = min(25, int(math.log(citation_count + 1) * 4))
-    
-    # 최신 연구 보정
     if age <= 2: volume_discount = int(volume_discount * 0.1)
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
@@ -361,14 +353,6 @@ with st.sidebar:
     st.metric("보유 논문", f"{len(st.session_state.inventory)}편")
     st.divider()
     
-    current_mission = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
-    if current_mission:
-        st.info(f"🎯 미션: {current_mission['text']}")
-    else:
-        st.success("🏆 모든 미션 완료!")
-
-    st.divider()
-    
     st.markdown("#### 🔍 평가 지표 가이드")
     st.markdown("""
     **1. Raw Score (인기도)**
@@ -498,7 +482,7 @@ with tab_search:
                     if is_owned:
                         st.button("보유중", key=f"owned_{unique_key_idx}", disabled=True, use_container_width=True)
                     else:
-                        if st.button("수집하기", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
+                        if st.button("수집", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['debiased_score']
                             check_mission(paper, "collect")
@@ -550,7 +534,7 @@ with tab_analysis:
             st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
             st.session_state.current_preset = "⚖️ 밸런스"
         
-        # 키 복구 로직 (prestige가 빠졌으므로 해당 키는 무시하거나 제거)
+        # 키 복구 로직 (prestige 제거됨)
         current_weights = st.session_state.analysis_weights
         if "prestige" in current_weights: del current_weights["prestige"]
 
@@ -584,6 +568,7 @@ with tab_analysis:
 
         w = st.session_state.analysis_weights
         
+        # [수정] 슬라이더는 한국어만
         with st.container(border=True):
             col_w1, col_w2 = st.columns(2)
             with col_w1: w["evidence"] = st.slider("증거", 0.0, 3.0, w["evidence"])
@@ -600,7 +585,7 @@ with tab_analysis:
         analyzed_papers = []
         for paper in st.session_state.search_results:
             details = paper.get('score_breakdown', {})
-            base = details.get('Base', 40)
+            # [수정] Base 점수 제거 반영
             ev_score = details.get('Evidence', 0)
             team_score = details.get('Team', 0)
             vol_penalty = details.get('Volume Penalty', 0)
@@ -609,7 +594,6 @@ with tab_analysis:
             if scarcity_score > 50: scarcity_score = 50
             
             custom_score = (
-                base +
                 (ev_score * w_evidence) +
                 (team_score * w_team) +
                 (age_score * w_recency) +
@@ -631,9 +615,8 @@ with tab_analysis:
                     st.caption(f"{paper['year']} | {paper['journal']} | 사용자 점수: {paper['custom_score']}")
                     with st.expander("점수 상세 구성 보기"):
                         details = paper.get('score_breakdown', {})
-                        # [Modification] Chart Keys: English (Korean) format
+                        # [수정] 차트 키: 영어 (한국어) 형식, Base 제거
                         chart_data = {
-                            "Base (기본)": details.get('Base', 40),
                             "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
                             "Team (규모)": details.get('Team', 0) * w_team,
                             "Recency (최신성)": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
