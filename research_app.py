@@ -21,22 +21,35 @@ DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# [Modification] JCR Data for Prestige Check
+# [Modification] Expanded JCR Data & Flexible Matching
+# 매칭률을 높이기 위해 주요 자매지와 범용 저널 추가
 JCR_IMPACT_FACTORS = {
-    "nature": {2023: 50.5, 2022: 64.8, 2021: 69.5},
-    "science": {2023: 44.7, 2022: 56.9, 2021: 63.7},
-    "cell": {2023: 45.5, 2022: 64.5, 2021: 66.8},
-    "the lancet": {2023: 98.4, 2022: 168.9},
+    # Top Tier & General
+    "nature": {2023: 50.5, 2022: 64.8},
+    "science": {2023: 44.7, 2022: 56.9},
+    "cell": {2023: 45.5, 2022: 64.5},
+    "pnas": {2023: 9.6, 2022: 11.1},
+    "nature communications": {2023: 14.7, 2022: 16.6},
+    "scientific reports": {2023: 3.8, 2022: 4.6},
+    "plos one": {2023: 2.9, 2022: 3.7},
+    
+    # Medicine
+    "lancet": {2023: 98.4, 2022: 168.9},
     "new england journal of medicine": {2023: 96.2, 2022: 158.5},
+    "nejm": {2023: 96.2, 2022: 158.5}, # Abbreviation
     "jama": {2023: 63.1, 2022: 120.7},
+    "bmj": {2023: 93.6},
     "nature medicine": {2023: 58.7, 2022: 82.9},
     "cancer discovery": {2023: 29.7, 2022: 38.3},
+    "clinical cancer research": {2023: 11.5},
+    
+    # Material / Chem / Eng
     "advanced materials": {2023: 27.4, 2022: 29.4},
     "chem": {2023: 19.1, 2022: 24.3},
-    "angewandte chemie international edition": {2023: 16.1},
+    "angewandte": {2023: 16.1},
+    "jacs": {2023: 14.4},
     "journal of the american chemical society": {2023: 14.4},
-    "proceedings of the national academy of sciences": {2023: 9.6},
-    "ieee transactions on pattern analysis and machine intelligence": {2023: 23.6}
+    "ieee": {2023: 10.0} # Generic estimate
 }
 
 # --- 2. Data Management (데이터 관리) ---
@@ -93,15 +106,22 @@ def get_pubmed_count(query):
         return None
 
 def get_impact_factor(journal_name, year):
+    """
+    저널명 매칭 로직 개선: 부분 일치 허용 (긴 이름 우선)
+    """
     if not journal_name: return None
     j_lower = journal_name.lower().strip()
+    
+    # 이름이 긴 순서대로 정렬하여 "Nature Medicine"이 "Nature"보다 먼저 매칭되도록 함
     sorted_keys = sorted(JCR_IMPACT_FACTORS.keys(), key=len, reverse=True)
     
     for key in sorted_keys:
-        if j_lower == key or j_lower.startswith(f"{key}:") or j_lower == f"the {key}":
+        # [수정] 포함 관계(in)로 변경하여 매칭률 대폭 상승
+        if key in j_lower:
             if year in JCR_IMPACT_FACTORS[key]:
                 return JCR_IMPACT_FACTORS[key][year]
             return max(JCR_IMPACT_FACTORS[key].values())
+            
     return None
 
 def evaluate_paper(paper_data):
@@ -120,12 +140,15 @@ def evaluate_paper(paper_data):
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
     impact_factor = get_impact_factor(journal_name, year)
+    
     if impact_factor:
-        is_top_tier = impact_factor > 15.0
+        # IF가 10 이상이면 Top Tier로 간주
+        is_top_tier = impact_factor > 10.0
     else:
-        top_journals_fallback = ['nature', 'science', 'cell', 'new england journal of medicine', 'lancet', 'jama']
+        # IF 데이터 없으면 이름으로 2차 확인
+        top_journals_fallback = ['nature', 'science', 'cell', 'new england journal of medicine', 'lancet', 'jama', 'pnas', 'ieee']
         j_lower = journal_name.lower()
-        is_top_tier = any(tj == j_lower for tj in top_journals_fallback)
+        is_top_tier = any(tj in j_lower for tj in top_journals_fallback)
         impact_factor = 0
 
     author_count = paper_data.get('author_count', 1)
@@ -167,6 +190,7 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
+    # Prestige 점수 반영
     if impact_factor:
         prestige_score = min(30, int(impact_factor * 0.8))
         debiased_base += prestige_score
@@ -549,18 +573,18 @@ with tab_search:
         st.divider()
         _, nav_col, _ = st.columns([1, 5, 1])
         with nav_col:
-            pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
-            with pg_cols[0]:
-                if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
-                    st.session_state.search_page -= 1
-                    st.rerun()
-            
             if total_pages <= 5: display_pages = range(1, total_pages + 1)
             else:
                 if current_page <= 3: display_pages = range(1, 6)
                 elif current_page >= total_pages - 2: display_pages = range(total_pages - 4, total_pages + 1)
                 else: display_pages = range(current_page - 2, current_page + 3)
 
+            pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
+            with pg_cols[0]:
+                if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
+                    st.session_state.search_page -= 1
+                    st.rerun()
+            
             for idx, p_num in enumerate(display_pages):
                 if idx < 5:
                     with pg_cols[idx + 1]:
