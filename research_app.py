@@ -21,8 +21,7 @@ DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# [Modification] Expanded JCR Data & Flexible Matching
-# 매칭률을 높이기 위해 주요 자매지와 범용 저널 추가
+# [Modification] JCR Data for Prestige Check
 JCR_IMPACT_FACTORS = {
     # Top Tier & General
     "nature": {2023: 50.5, 2022: 64.8},
@@ -106,22 +105,15 @@ def get_pubmed_count(query):
         return None
 
 def get_impact_factor(journal_name, year):
-    """
-    저널명 매칭 로직 개선: 부분 일치 허용 (긴 이름 우선)
-    """
     if not journal_name: return None
     j_lower = journal_name.lower().strip()
-    
-    # 이름이 긴 순서대로 정렬하여 "Nature Medicine"이 "Nature"보다 먼저 매칭되도록 함
     sorted_keys = sorted(JCR_IMPACT_FACTORS.keys(), key=len, reverse=True)
     
     for key in sorted_keys:
-        # [수정] 포함 관계(in)로 변경하여 매칭률 대폭 상승
-        if key in j_lower:
+        if j_lower == key or j_lower.startswith(f"{key}:") or j_lower == f"the {key}":
             if year in JCR_IMPACT_FACTORS[key]:
                 return JCR_IMPACT_FACTORS[key][year]
             return max(JCR_IMPACT_FACTORS[key].values())
-            
     return None
 
 def evaluate_paper(paper_data):
@@ -140,12 +132,9 @@ def evaluate_paper(paper_data):
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
     impact_factor = get_impact_factor(journal_name, year)
-    
     if impact_factor:
-        # IF가 10 이상이면 Top Tier로 간주
-        is_top_tier = impact_factor > 10.0
+        is_top_tier = impact_factor > 15.0
     else:
-        # IF 데이터 없으면 이름으로 2차 확인
         top_journals_fallback = ['nature', 'science', 'cell', 'new england journal of medicine', 'lancet', 'jama', 'pnas', 'ieee']
         j_lower = journal_name.lower()
         is_top_tier = any(tj in j_lower for tj in top_journals_fallback)
@@ -190,7 +179,6 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    # Prestige 점수 반영
     if impact_factor:
         prestige_score = min(30, int(impact_factor * 0.8))
         debiased_base += prestige_score
@@ -365,7 +353,7 @@ if 'search_page' not in st.session_state: st.session_state['search_page'] = 1
 if 'is_exact_search' not in st.session_state: st.session_state['is_exact_search'] = False
 if 'sort_option' not in st.session_state: st.session_state['sort_option'] = "내실 (Debiased)"
 if 'analysis_weights' not in st.session_state: st.session_state['analysis_weights'] = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
-if 'current_preset' not in st.session_state: st.session_state['current_preset'] = "⚖️ Balance (밸런스)"
+if 'current_preset' not in st.session_state: st.session_state['current_preset'] = "⚖️ 밸런스"
 
 def get_level_info(score):
     level_threshold = 500
@@ -618,25 +606,25 @@ with tab_analysis:
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
         
         with col_p1:
-            if st.button("⚖️ Balance (밸런스)", use_container_width=True, help="Equal weights (모든 지표를 골고루 반영합니다.)"):
+            if st.button("⚖️ 밸런스", use_container_width=True, help="Equal weights (모든 지표를 골고루 반영합니다.)"):
                 st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
                 st.session_state.current_preset = "⚖️ Balance (밸런스)"
                 st.rerun()
 
         with col_p2:
-            if st.button("💎 Hidden Gem (숨겨진 원석)", use_container_width=True, help="High evidence, low citations (인용은 적지만 증거가 확실한 논문을 찾습니다.)"):
+            if st.button("💎 숨겨진 원석", use_container_width=True, help="High evidence, low citations (인용은 적지만 증거가 확실한 논문을 찾습니다.)"):
                 st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 1.0, "team": 1.0, "scarcity": 3.0}
                 st.session_state.current_preset = "💎 Hidden Gem (숨겨진 원석)"
                 st.rerun()
                 
         with col_p3:
-            if st.button("🚀 Trends (최신 트렌드)", use_container_width=True, help="Recency & Evidence focused (최신성과 실험적 근거를 최우선으로 봅니다.)"):
+            if st.button("🚀 최신 트렌드", use_container_width=True, help="Recency & Evidence focused (최신성과 실험적 근거를 최우선으로 봅니다.)"):
                 st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 3.0, "team": 0.5, "scarcity": 1.0}
                 st.session_state.current_preset = "🚀 Trends (최신 트렌드)"
                 st.rerun()
 
         with col_p4:
-            if st.button("👑 Authority (권위주의)", use_container_width=True, help="Prestige & Big Team (유명 저널과 대규모 연구팀을 선호합니다.)"):
+            if st.button("👑 권위주의", use_container_width=True, help="Prestige & Big Team (유명 저널과 대규모 연구팀을 선호합니다.)"):
                 st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 3.0, "recency": 0.5, "team": 2.0, "scarcity": 0.5}
                 st.session_state.current_preset = "👑 Authority (권위주의)"
                 st.rerun()
@@ -644,6 +632,17 @@ with tab_analysis:
         st.info(f"Current Mode (현재 적용된 분석 모드): **{st.session_state.current_preset}**")
 
         w = st.session_state.analysis_weights
+        
+        # [Modification] Sliders with English (Korean) Labels
+        with st.container(border=True):
+            col_w1, col_w2, col_w3 = st.columns(3)
+            with col_w1: w["evidence"] = st.slider("Evidence (증거)", 0.0, 3.0, w["evidence"])
+            with col_w2: w["prestige"] = st.slider("Prestige (권위)", 0.0, 3.0, w["prestige"])
+            with col_w3: w["recency"] = st.slider("Recency (최신성)", 0.0, 3.0, w["recency"])
+            col_w4, col_w5 = st.columns(2)
+            with col_w4: w["team"] = st.slider("Team (규모)", 0.0, 3.0, w["team"])
+            with col_w5: w["scarcity"] = st.slider("Scarcity (희소성)", 0.0, 3.0, w["scarcity"])
+
         w_evidence = w["evidence"]
         w_prestige = w["prestige"]
         w_recency = w["recency"]
@@ -685,13 +684,14 @@ with tab_analysis:
                     st.caption(f"{paper['year']} | {paper['journal']} | Custom Score: {paper['custom_score']}")
                     with st.expander("View Score Details (점수 상세 구성 보기)"):
                         details = paper.get('score_breakdown', {})
+                        # [Modification] Chart Keys with English (Korean)
                         chart_data = {
-                            "Base": details.get('Base', 40),
-                            "Evidence": details.get('Evidence', 0) * w_evidence,
-                            "Prestige": (20 if paper['is_top_tier'] else 0) * w_prestige,
-                            "Team": details.get('Team', 0) * w_team,
-                            "Recency": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
-                            "Scarcity": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
+                            "Base (기본)": details.get('Base', 40),
+                            "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
+                            "Prestige (권위)": (20 if paper['is_top_tier'] else 0) * w_prestige,
+                            "Team (규모)": details.get('Team', 0) * w_team,
+                            "Recency (최신성)": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
+                            "Scarcity (희소성)": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
                         }
                         st.bar_chart(chart_data)
                 with c2:
