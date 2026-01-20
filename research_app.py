@@ -58,6 +58,25 @@ def save_user_data(user_id):
 def get_current_year():
     return datetime.datetime.now().year
 
+def get_pubmed_count(query):
+    """
+    NCBI E-utilities API를 사용하여 PubMed 데이터베이스의 정확한 논문 수를 조회합니다.
+    """
+    try:
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        params = {
+            "db": "pubmed",
+            "term": query,
+            "retmode": "json",
+            "rettype": "count"
+        }
+        response = requests.get(url, params=params, timeout=5)
+        data = response.json()
+        count = int(data["esearchresult"]["count"])
+        return count
+    except Exception:
+        return None
+
 def evaluate_paper(paper_data):
     """
     논문의 가치를 Raw Score(인기도)와 Debiased Score(내실)로 분리하여 평가
@@ -99,15 +118,19 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 데이터 부족"
 
-    # 점수 산정
+    # --- 점수 산정 로직 ---
+
+    # 1. Raw Score (인기도)
     raw_score = min(99, int(10 + (math.log(citation_count + 1) * 15)))
     if is_top_tier: raw_score = min(99, raw_score + 20)
 
+    # 2. Debiased Score (내실)
     debiased_base = 40
     if has_evidence: debiased_base += 30 
     if is_big_team: debiased_base += 10
     
     volume_discount = min(30, int(math.log(citation_count + 1) * 5))
+    
     if age <= 2: volume_discount = int(volume_discount * 0.2)
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
@@ -122,6 +145,7 @@ def evaluate_paper(paper_data):
 
     debiased_score = max(5, min(99, debiased_score))
 
+    # 3. Bias Penalty
     bias_penalty = raw_score - debiased_score
     
     potential_type = "normal"
@@ -152,6 +176,7 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
+        # 대량 수집 (rows=1000, 통계용)
         url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
@@ -168,8 +193,10 @@ def search_crossref_api(query):
     valid_papers = []
     current_year = get_current_year()
 
-    # 편향 요약 통계
-    total_results = message.get('total-results', 0)
+    # --- PubMed 실제 데이터 조회 ---
+    pubmed_count = get_pubmed_count(clean_query)
+    
+    # 편향 요약 통계 계산
     citations_list = []
     years_list = []
 
@@ -222,7 +249,7 @@ def search_crossref_api(query):
             'url': f"https://doi.org/{item['DOI']}",
             **eval_result,
             'is_reviewed': False,
-            'original_rank': idx  # [중요] 원래 순서 저장 (정확도 정렬용)
+            'original_rank': idx
         }
         valid_papers.append(paper_obj)
     
@@ -237,13 +264,15 @@ def search_crossref_api(query):
         period_str = "Unknown"
 
     bias_summary = {
-        "total_results": total_results,
+        "pubmed_count": pubmed_count if pubmed_count is not None else "집계 불가",
         "avg_citations": avg_citations,
         "period": period_str,
-        "is_high_exposure": total_results > 5000 or avg_citations > 100
+        "is_high_exposure": (pubmed_count > 5000 if pubmed_count else False) or avg_citations > 100
     }
 
-    # API 함수에서는 정렬하지 않고 원본 데이터 그대로 반환 (UI에서 정렬 처리)
+    if not is_exact_mode:
+        valid_papers.sort(key=lambda x: x['debiased_score'], reverse=True)
+            
     return valid_papers, bias_summary, is_exact_mode
 
 # --- 3. Streamlit UI ---
@@ -271,6 +300,7 @@ def get_level_info(score):
 def check_mission(paper, action):
     current_m = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
     if not current_m: return
+
     completed = False
     m_type = current_m['type']
     if m_type == "journal" and action == "collect" and paper['is_top_tier']: completed = True
@@ -364,7 +394,7 @@ with tab_search:
         search_btn = st.button("검색", type="primary", use_container_width=True)
 
     if search_btn and query:
-        with st.spinner("문헌량 편향 분석 및 데이터 처리 중..."):
+        with st.spinner("PubMed 데이터베이스 및 문헌량 편향 분석 중..."):
             results, summary, is_exact = search_crossref_api(query)
             st.session_state.search_results = results
             st.session_state.bias_summary = summary
@@ -377,21 +407,26 @@ with tab_search:
     if st.session_state.search_results:
         summary = st.session_state.bias_summary
         
-        # 편향 요약
+        # 편향 요약 박스 (PubMed 실제 데이터 표시)
         with st.container(border=True):
             st.markdown("### 🔍 Search Bias Summary")
             bc1, bc2, bc3 = st.columns(3)
-            with bc1: st.metric("PubMed 논문 수 (추정)", f"{summary['total_results']:,}편")
+            # 쉼표(,) 포맷팅 적용하여 보기 쉽게 표시
+            pub_cnt = summary['pubmed_count']
+            pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
+            
+            with bc1: st.metric("PubMed 논문 수 (실제)", pub_cnt_str)
             with bc2: st.metric("평균 인용수 (Top 200)", f"{summary['avg_citations']:,}회")
             with bc3: st.metric("연구 집중 시기", summary['period'])
+            
             if summary['is_high_exposure']:
-                st.warning("⚠ **High Exposure Topic**: 상위 노출 논문이 과대평가(Bias)되었을 가능성이 큽니다.")
+                st.warning("⚠ **High Exposure Topic**: 이 주제는 연구가 매우 활발하여, 상위 노출 논문이 과대평가(Bias)되었을 가능성이 큽니다. Debiased Score를 참고하여 내실 있는 연구를 선별하세요.")
             else:
-                st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다.")
+                st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
 
         st.divider()
 
-        # [New] 정렬 옵션 선택 (라디오 버튼)
+        # 정렬 옵션 선택 (라디오 버튼)
         st.markdown("##### 🔃 정렬 기준 선택")
         sort_col, _ = st.columns([2, 1])
         with sort_col:
@@ -413,7 +448,7 @@ with tab_search:
         elif sort_opt == "정확도 (Relevance)":
             st.session_state.search_results.sort(key=lambda x: x['original_rank'])
 
-        # 페이지네이션 및 리스트 출력
+        # 페이지네이션
         items_per_page = 50
         total_items = len(st.session_state.search_results)
         total_pages = max(1, math.ceil(total_items / items_per_page))
@@ -430,22 +465,27 @@ with tab_search:
                 c1, c2 = st.columns([5, 2])
                 with c1:
                     st.markdown(f"#### {paper['title']}")
+                    
                     tags = []
                     if paper['is_top_tier']: tags.append("👑 Top Tier")
                     if paper['has_evidence']: tags.append("🔬 Evidence")
+                    if paper['is_big_team']: tags.append("👥 Big Team")
                     if paper['integrity_status'] != "valid": tags.append("⚠️ 데이터 부족")
                     if paper['potential_type'] == "amazing": tags.append("💎 Hidden Gem")
+                    
                     st.write(" ".join([f"`{t}`" for t in tags]))
                     
-                    auth_str = ", ".join(paper['authors'])
-                    if paper['author_full_count'] > 3: auth_str += f" 외 {paper['author_full_count']-3}명"
-                    st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_str}")
+                    auth_display = ", ".join(paper['authors'])
+                    if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
+                    st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
                 with c2:
                     col_raw, col_deb = st.columns(2)
-                    with col_raw: st.metric("Raw", f"{paper['raw_score']}")
-                    with col_deb: st.metric("Debiased", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}")
+                    with col_raw: st.metric("Raw", f"{paper['raw_score']}", help="검색 엔진이 선호하는 인기도 점수")
+                    with col_deb: st.metric("Debiased", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}", help="문헌량 거품을 뺀 진짜 내실 점수")
+                    
+                    if paper['bias_penalty'] > 20: st.caption("⚠ High exposure")
                     
                     is_owned = any(p['id'] == paper['id'] for p in st.session_state.inventory)
                     if is_owned:
@@ -459,21 +499,21 @@ with tab_search:
                             st.rerun()
         
         st.divider()
-        # 페이지네이션 컨트롤러
         _, nav_col, _ = st.columns([1, 5, 1])
         with nav_col:
-            pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
-            with pg_cols[0]:
-                if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
-                    st.session_state.search_page -= 1
-                    st.rerun()
-            
             if total_pages <= 5: display_pages = range(1, total_pages + 1)
             else:
                 if current_page <= 3: display_pages = range(1, 6)
                 elif current_page >= total_pages - 2: display_pages = range(total_pages - 4, total_pages + 1)
                 else: display_pages = range(current_page - 2, current_page + 3)
 
+            pg_cols = st.columns([1, 1, 1, 1, 1, 1, 1, 0.5, 2.5], gap="small")
+            
+            with pg_cols[0]:
+                if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
+                    st.session_state.search_page -= 1
+                    st.rerun()
+            
             for idx, p_num in enumerate(display_pages):
                 if idx < 5:
                     with pg_cols[idx + 1]:
