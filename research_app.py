@@ -11,7 +11,7 @@ from collections import Counter
 # --- 1. Settings & Constants (설정 및 상수) ---
 
 MISSIONS = [
-    {"id": 1, "text": "Collect 1 paper from Top Tier Journals (Top Tier 저널 논문 1편 수집)", "type": "journal", "target": "top_tier", "count": 1, "reward": 150},
+    {"id": 1, "text": "Collect 1 paper with 100+ Citations (인용 100회 이상 논문 1편 수집)", "type": "citation", "target": 100, "count": 1, "reward": 150},
     {"id": 2, "text": "Collect papers with 5+ authors (5인 이상 협업 연구 수집)", "type": "team", "target": 5, "count": 1, "reward": 100},
     {"id": 3, "text": "Avoid Trap Papers (함정 논문 피하기 - 검증 실패 0회)", "type": "avoid_trap", "target": "trap", "count": 0, "reward": 0},
     {"id": 4, "text": "Reach 1500 Research Points (연구 점수 1500점 달성)", "type": "score", "target": 1500, "count": 1500, "reward": 500},
@@ -20,36 +20,6 @@ MISSIONS = [
 DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
-
-# JCR Data for Prestige Check
-JCR_IMPACT_FACTORS = {
-    # Top Tier & General
-    "nature": {2023: 50.5, 2022: 64.8},
-    "science": {2023: 44.7, 2022: 56.9},
-    "cell": {2023: 45.5, 2022: 64.5},
-    "pnas": {2023: 9.6, 2022: 11.1},
-    "nature communications": {2023: 14.7, 2022: 16.6},
-    "scientific reports": {2023: 3.8, 2022: 4.6},
-    "plos one": {2023: 2.9, 2022: 3.7},
-    
-    # Medicine
-    "lancet": {2023: 98.4, 2022: 168.9},
-    "new england journal of medicine": {2023: 96.2, 2022: 158.5},
-    "nejm": {2023: 96.2, 2022: 158.5}, # Abbreviation
-    "jama": {2023: 63.1, 2022: 120.7},
-    "bmj": {2023: 93.6},
-    "nature medicine": {2023: 58.7, 2022: 82.9},
-    "cancer discovery": {2023: 29.7, 2022: 38.3},
-    "clinical cancer research": {2023: 11.5},
-    
-    # Material / Chem / Eng
-    "advanced materials": {2023: 27.4, 2022: 29.4},
-    "chem": {2023: 19.1, 2022: 24.3},
-    "angewandte": {2023: 16.1},
-    "jacs": {2023: 14.4},
-    "journal of the american chemical society": {2023: 14.4},
-    "ieee": {2023: 10.0} # Generic estimate
-}
 
 # --- 2. Data Management (데이터 관리) ---
 
@@ -104,25 +74,12 @@ def get_pubmed_count(query):
     except Exception:
         return None
 
-def get_impact_factor(journal_name, year):
-    if not journal_name: return None
-    j_lower = journal_name.lower().strip()
-    sorted_keys = sorted(JCR_IMPACT_FACTORS.keys(), key=len, reverse=True)
-    
-    for key in sorted_keys:
-        if key in j_lower:
-            if year in JCR_IMPACT_FACTORS[key]:
-                return JCR_IMPACT_FACTORS[key][year]
-            return max(JCR_IMPACT_FACTORS[key].values())
-    return None
-
 def evaluate_paper(paper_data):
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
     age = current_year - year
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
-    journal_name = paper_data.get('journal', "")
     
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
@@ -131,15 +88,6 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
-    impact_factor = get_impact_factor(journal_name, year)
-    if impact_factor:
-        is_top_tier = impact_factor > 10.0
-    else:
-        top_journals_fallback = ['nature', 'science', 'cell', 'new england journal of medicine', 'lancet', 'jama', 'pnas', 'ieee']
-        j_lower = journal_name.lower()
-        is_top_tier = any(tj in j_lower for tj in top_journals_fallback)
-        impact_factor = 0
-
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
 
@@ -147,12 +95,13 @@ def evaluate_paper(paper_data):
     integrity_status = "valid"
     risk_reason = ""
 
+    # Top Tier 예외 처리 제거됨 (인용수만으로 판단)
     if ref_count is None:
-        if citation_count < 5 and not is_top_tier:
+        if citation_count < 5:
             integrity_status = "uncertain"
             risk_reason = "Missing Metadata (메타데이터 누락)"
     elif ref_count < 5:
-        if citation_count < 5 and not is_top_tier:
+        if citation_count < 5:
             integrity_status = "suspected"
             risk_reason = "Insufficient References (참고문헌 부족)"
 
@@ -160,17 +109,15 @@ def evaluate_paper(paper_data):
     score_breakdown = {
         "Base": 30,
         "Evidence": 0,
-        "Prestige": 0,
         "Team": 0,
         "Volume Penalty": 0,
         "Integrity Penalty": 0
     }
 
-    # 1. Raw Score
-    raw_score = min(99, int(5 + (math.log(citation_count + 1) * 12)))
-    if is_top_tier: raw_score = min(99, raw_score + 15)
+    # 1. Raw Score (인기도 중심)
+    raw_score = min(99, int(5 + (math.log(citation_count + 1) * 15)))
 
-    # 2. Debiased Score
+    # 2. Debiased Score (내실 중심)
     debiased_base = 30
     if has_evidence: 
         debiased_base += 25 
@@ -179,13 +126,7 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    if impact_factor:
-        prestige_score = min(30, int(impact_factor * 0.8))
-        debiased_base += prestige_score
-        score_breakdown["Prestige"] = prestige_score
-    elif is_top_tier:
-        debiased_base += 15
-        score_breakdown["Prestige"] = 15
+    # Prestige 점수 로직 제거됨
 
     volume_discount = min(25, int(math.log(citation_count + 1) * 4))
     if age <= 2: volume_discount = int(volume_discount * 0.1)
@@ -228,8 +169,6 @@ def evaluate_paper(paper_data):
         "potential_type": potential_type,
         "risk_reason": risk_reason,
         "has_evidence": has_evidence,
-        "is_top_tier": is_top_tier,
-        "impact_factor": impact_factor,
         "is_big_team": is_big_team,
         "integrity_status": integrity_status,
         "score_breakdown": score_breakdown,
@@ -352,7 +291,7 @@ if 'bias_summary' not in st.session_state: st.session_state['bias_summary'] = {}
 if 'search_page' not in st.session_state: st.session_state['search_page'] = 1
 if 'is_exact_search' not in st.session_state: st.session_state['is_exact_search'] = False
 if 'sort_option' not in st.session_state: st.session_state['sort_option'] = "내실 (Debiased)"
-if 'analysis_weights' not in st.session_state: st.session_state['analysis_weights'] = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+if 'analysis_weights' not in st.session_state: st.session_state['analysis_weights'] = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
 if 'current_preset' not in st.session_state: st.session_state['current_preset'] = "⚖️ 밸런스"
 
 def get_level_info(score):
@@ -367,7 +306,8 @@ def check_mission(paper, action):
     if not current_m: return
     completed = False
     m_type = current_m['type']
-    if m_type == "journal" and action == "collect" and paper['is_top_tier']: completed = True
+    # journal 미션 (Prestige 삭제로 인해 인용수로 대체)
+    if m_type == "citation" and action == "collect" and paper['citations'] >= 100: completed = True
     elif m_type == "team" and action == "collect" and paper['is_big_team']: completed = True
     elif m_type == "score" and st.session_state.score >= current_m['target']: completed = True
     if completed:
@@ -439,13 +379,11 @@ with st.sidebar:
     st.markdown("""
     1. 증거 적합성 지표 (Evidence Index)
        : 제목에 실험적 검증(in vivo, clinical 등)을 암시하는 구체적인 단어 포함
-    2. 저널 권위 지표 (Prestige Index)
-       : Nature, Science 등 학계에서 인정받는 최상위 저널
-    3. 연구 규모 지표 (Collaboration Index)
+    2. 연구 규모 지표 (Collaboration Index)
        : 참여 저자 수 다수(5인 이상)가 참여한 연구 우대
-    4. 데이터 신뢰도 지표 (Reliability Index)
+    3. 데이터 신뢰도 지표 (Reliability Index)
        : 참고 문헌 수를 확인하여 연구의 깊이를 1차적으로 거릅니다. 참고 문헌이 너무 적으면 정식 논문이 아닌 초록이나 단순 투고일 가능성이 높아 배제합니다.
-    5. 시의성 대비 인용 지표 (Opportunity Index)
+    4. 시의성 대비 인용 지표 (Opportunity Index)
        : 발행 시점과 인용 수의 상관관계를 분석하여 숨겨진 가치를 찾습니다. 최신이면서 인용이 적은 연구는 기회(Opportunity)로, 오래되었는데 인용이 없는 연구는 함정(Trap)으로 분류합니다.
     """)
     
@@ -529,7 +467,6 @@ with tab_search:
                 with c1:
                     st.markdown(f"#### {paper['title']}")
                     tags = []
-                    if paper['is_top_tier']: tags.append("👑 Top Tier")
                     if paper['has_evidence']: tags.append("🔬 Evidence")
                     if paper['is_big_team']: tags.append("👥 Big Team")
                     if paper['integrity_status'] != "valid": tags.append("⚠️ Low Data (데이터 부족)")
@@ -539,6 +476,7 @@ with tab_search:
                     if paper['author_full_count'] > 3: auth_display += f" et al. (+{paper['author_full_count'] - 3})"
                     st.caption(f"{paper['year']} | {paper['journal']} | Citations: {paper['citations']} (인용 {paper['citations']}회) | Authors: {auth_display}")
                     
+                    # Google search for journal impact factor (for manual check)
                     google_search_url = f"https://www.google.com/search?q={paper['journal'].replace(' ', '+')}+impact+factor+{paper['year']}"
                     
                     links_col1, links_col2 = st.columns(2)
@@ -552,9 +490,6 @@ with tab_search:
                     with col_raw: st.metric("Raw Score", f"{paper['raw_score']}", help="Popularity Score (검색 엔진이 선호하는 인기도 점수)")
                     with col_deb: st.metric("Debiased", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}", help="Intirnsic Value (문헌량 거품을 뺀 진짜 내실 점수)")
                     if paper['bias_penalty'] > 20: st.caption("⚠ High exposure (거품 주의)")
-                    
-                    if paper['impact_factor']:
-                        st.caption(f"🏆 IF: {paper['impact_factor']}")
 
                     is_owned = any(p['id'] == paper['id'] for p in st.session_state.inventory)
                     if is_owned:
@@ -609,32 +544,32 @@ with tab_analysis:
         st.markdown("Adjust weights to re-evaluate papers based on your criteria. (각 지표의 가중치를 조절하여 나만의 기준(Custom Score)으로 논문을 재평가하고 정렬합니다.)")
         
         if 'analysis_weights' not in st.session_state:
-            st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+            st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
             st.session_state.current_preset = "⚖️ Balance (밸런스)"
 
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
         
         with col_p1:
             if st.button("⚖️ 밸런스", use_container_width=True, help="Equal weights (모든 지표를 골고루 반영합니다.)"):
-                st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
-                st.session_state.current_preset = "⚖️ Balance (밸런스)"
+                st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+                st.session_state.current_preset = "⚖️ 밸런스"
                 st.rerun()
 
         with col_p2:
             if st.button("💎 숨겨진 원석", use_container_width=True, help="High evidence, low citations (인용은 적지만 증거가 확실한 논문을 찾습니다.)"):
-                st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 1.0, "team": 1.0, "scarcity": 3.0}
+                st.session_state.analysis_weights = {"evidence": 2.0, "recency": 1.0, "team": 1.0, "scarcity": 3.0}
                 st.session_state.current_preset = "💎 숨겨진 원석"
                 st.rerun()
                 
         with col_p3:
             if st.button("🚀 최신 트렌드", use_container_width=True, help="Recency & Evidence focused (최신성과 실험적 근거를 최우선으로 봅니다.)"):
-                st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 3.0, "team": 0.5, "scarcity": 1.0}
+                st.session_state.analysis_weights = {"evidence": 2.0, "recency": 3.0, "team": 0.5, "scarcity": 1.0}
                 st.session_state.current_preset = "🚀 최신 트렌드"
                 st.rerun()
 
         with col_p4:
-            if st.button("👑 권위주의", use_container_width=True, help="Prestige & Big Team (유명 저널과 대규모 연구팀을 선호합니다.)"):
-                st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 3.0, "recency": 0.5, "team": 2.0, "scarcity": 0.5}
+            if st.button("👑 권위주의", use_container_width=True, help="Big Team focused (대규모 연구팀을 선호합니다.)"):
+                st.session_state.analysis_weights = {"evidence": 1.0, "recency": 0.5, "team": 3.0, "scarcity": 0.5}
                 st.session_state.current_preset = "👑 권위주의"
                 st.rerun()
 
@@ -642,18 +577,15 @@ with tab_analysis:
 
         w = st.session_state.analysis_weights
         
-        # [Modification] Sliders with English (Korean) Labels
         with st.container(border=True):
-            col_w1, col_w2, col_w3 = st.columns(3)
+            col_w1, col_w3 = st.columns(2)
             with col_w1: w["evidence"] = st.slider("Evidence (증거)", 0.0, 3.0, w["evidence"])
-            with col_w2: w["prestige"] = st.slider("Prestige (권위)", 0.0, 3.0, w["prestige"])
             with col_w3: w["recency"] = st.slider("Recency (최신성)", 0.0, 3.0, w["recency"])
             col_w4, col_w5 = st.columns(2)
             with col_w4: w["team"] = st.slider("Team (규모)", 0.0, 3.0, w["team"])
             with col_w5: w["scarcity"] = st.slider("Scarcity (희소성)", 0.0, 3.0, w["scarcity"])
 
         w_evidence = w["evidence"]
-        w_prestige = w["prestige"]
         w_recency = w["recency"]
         w_team = w["team"]
         w_scarcity = w["scarcity"]
@@ -672,7 +604,6 @@ with tab_analysis:
             custom_score = (
                 base +
                 (ev_score * w_evidence) +
-                (20 * int(paper['is_top_tier']) * w_prestige) +
                 (team_score * w_team) +
                 (age_score * w_recency) +
                 (scarcity_score * w_scarcity) +
@@ -697,7 +628,6 @@ with tab_analysis:
                         chart_data = {
                             "Base (기본)": details.get('Base', 40),
                             "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
-                            "Prestige (권위)": (20 if paper['is_top_tier'] else 0) * w_prestige,
                             "Team (규모)": details.get('Team', 0) * w_team,
                             "Recency (최신성)": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
                             "Scarcity (희소성)": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
