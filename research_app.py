@@ -371,7 +371,7 @@ with st.sidebar:
     : Impact와 Potential의 괴리. 양수면 과열(Bubble), 음수면 저평가(Hidden Gem)된 연구입니다.
     """)
 
-    st.markdown("#### 📊 상세 점수 계산법")
+    st.markdown("#### 📊 점수 상세 지표")
     st.markdown("""
     **1. Evidence (증거)**
     - **방식**: 제목 내 실험 키워드(in vivo, clinical 등) 포함 여부
@@ -661,7 +661,7 @@ with tab_analysis:
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
-                    with st.expander("점수 상세 구성 보기"):
+                    with st.expander("점수 상세 지표 보기"):
                         details = paper.get('score_breakdown', {})
                         # [Modified] Chart Keys: English (Korean)
                         chart_data = {
