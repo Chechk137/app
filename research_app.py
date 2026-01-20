@@ -21,23 +21,22 @@ DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# [New] 주요 저널의 연도별 Impact Factor (JCR 데이터 기반 내장 DB)
-# 외부 접근이 불가능하므로, 주요 저널의 실제 데이터를 내장하여 시뮬레이션함
+# [수정] 정확한 매칭을 위해 저널명을 구체적으로 명시
 JCR_IMPACT_FACTORS = {
-    "nature": {2023: 50.5, 2022: 64.8, 2021: 69.5, 2020: 49.9, 2019: 42.8},
-    "science": {2023: 44.7, 2022: 56.9, 2021: 63.7, 2020: 47.7, 2019: 41.8},
-    "cell": {2023: 45.5, 2022: 64.5, 2021: 66.8, 2020: 41.6, 2019: 38.6},
-    "lancet": {2023: 98.4, 2022: 168.9, 2021: 202.7, 2020: 79.3},
-    "nejm": {2023: 96.2, 2022: 158.5, 2021: 176.0, 2020: 91.2},
-    "jama": {2023: 63.1, 2022: 120.7, 2021: 157.3, 2020: 56.3},
-    "nature medicine": {2023: 58.7, 2022: 82.9, 2021: 87.2},
-    "cancer discovery": {2023: 29.7, 2022: 38.3, 2021: 39.4},
-    "advanced materials": {2023: 27.4, 2022: 29.4, 2021: 32.1},
+    "nature": {2023: 50.5, 2022: 64.8, 2021: 69.5},
+    "science": {2023: 44.7, 2022: 56.9, 2021: 63.7},
+    "cell": {2023: 45.5, 2022: 64.5, 2021: 66.8},
+    "the lancet": {2023: 98.4, 2022: 168.9},
+    "new england journal of medicine": {2023: 96.2, 2022: 158.5},
+    "jama": {2023: 63.1, 2022: 120.7},
+    "nature medicine": {2023: 58.7, 2022: 82.9},
+    "cancer discovery": {2023: 29.7, 2022: 38.3},
+    "advanced materials": {2023: 27.4, 2022: 29.4},
     "chem": {2023: 19.1, 2022: 24.3},
-    "angewandte chemie": {2023: 16.1, 2022: 16.6},
-    "jacs": {2023: 14.4, 2022: 15.0},
-    "pnas": {2023: 9.6, 2022: 11.1},
-    "ieee trans": {2023: 10.0} # Generic estimate for IEEE Trans
+    "angewandte chemie international edition": {2023: 16.1},
+    "journal of the american chemical society": {2023: 14.4},
+    "proceedings of the national academy of sciences": {2023: 9.6},
+    "ieee transactions on pattern analysis and machine intelligence": {2023: 23.6}
 }
 
 # --- 2. 데이터 관리 함수 (저장/로드) ---
@@ -78,9 +77,6 @@ def get_current_year():
     return datetime.datetime.now().year
 
 def get_pubmed_count(query):
-    """
-    NCBI E-utilities API를 사용하여 PubMed 데이터베이스의 정확한 논문 수를 조회합니다.
-    """
     try:
         url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
         params = {
@@ -98,28 +94,27 @@ def get_pubmed_count(query):
 
 def get_impact_factor(journal_name, year):
     """
-    내장된 JCR 데이터베이스에서 IF를 조회합니다.
-    데이터가 없으면 None을 반환합니다.
+    [수정] 정확도 높은 매칭을 위해 로직 개선
+    단순 포함이 아니라, 전체 이름이 일치하거나 확실한 경우에만 IF 반환
     """
     if not journal_name: return None
     
-    j_lower = journal_name.lower()
+    j_lower = journal_name.lower().strip()
     
-    # 1. 정확한 매칭 시도
-    for key in JCR_IMPACT_FACTORS:
-        if key in j_lower:
-            # 해당 연도의 IF가 있는지 확인
+    # 1. 우선순위: 긴 이름부터 매칭 (Nature Medicine이 Nature보다 먼저 걸리게)
+    sorted_keys = sorted(JCR_IMPACT_FACTORS.keys(), key=len, reverse=True)
+    
+    for key in sorted_keys:
+        # 정확히 일치하거나, ': ' 등으로 부제가 붙은 경우만 인정
+        # 예: "Nature" == "Nature" (O), "Nature Communications" != "Nature" (X)
+        if j_lower == key or j_lower.startswith(f"{key}:") or j_lower == f"the {key}":
             if year in JCR_IMPACT_FACTORS[key]:
                 return JCR_IMPACT_FACTORS[key][year]
-            # 없다면 가장 최근 연도의 IF 반환 (근사치)
             return max(JCR_IMPACT_FACTORS[key].values())
             
     return None
 
 def evaluate_paper(paper_data):
-    """
-    논문의 가치를 Raw Score(인기도)와 Debiased Score(내실)로 분리하여 평가
-    """
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
     age = current_year - year
@@ -127,7 +122,6 @@ def evaluate_paper(paper_data):
     citation_count = paper_data.get('citations', 0)
     journal_name = paper_data.get('journal', "")
     
-    # 1. 키워드 (Evidence)
     evidence_keywords = [
         'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
         'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
@@ -135,25 +129,24 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
-    # 2. 저널 권위 (Journal Prestige - Real IF Based)
+    # [수정] Top Tier 판단도 정확한 IF 함수에 의존
     impact_factor = get_impact_factor(journal_name, year)
     
-    # IF가 있으면 그것을 기준으로, 없으면 기존 키워드 방식 백업 사용
+    # IF가 10 이상이면 확실한 Top Tier, 아니면 키워드로 보완하되 엄격하게
     if impact_factor:
-        is_top_tier = impact_factor > 10.0
+        is_top_tier = impact_factor > 15.0 # 기준 상향 (10 -> 15)
     else:
-        # Fallback for unknown IF
-        top_journals = ['nature', 'science', 'cell', 'lancet', 'nejm', 'jama', 'ieee', 'pnas', 'advanced materials', 'cancer discovery', 'chem', 'acs', 'angewandte']
-        is_top_tier = any(j in journal_name.lower() for j in top_journals)
-        impact_factor = 0 # 알 수 없음
+        # IF 데이터가 없을 때 보조 수단 (매우 유명한 것만)
+        top_journals_fallback = ['nature', 'science', 'cell', 'new england journal of medicine', 'lancet', 'jama']
+        j_lower = journal_name.lower()
+        is_top_tier = any(tj == j_lower for tj in top_journals_fallback)
+        impact_factor = 0
 
-    # 3. 연구팀 규모 (Team Size)
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
 
-    # 4. 데이터 신뢰도 (Reliability)
     ref_count = paper_data.get('ref_count') 
-    integrity_status = "valid"
+    integrity_status = "valid" 
     risk_reason = ""
 
     if ref_count is None:
@@ -165,10 +158,10 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 데이터 부족"
 
-    # --- 점수 산정 로직 ---
+    # --- 점수 산정 로직 (밸런스 조정) ---
     
     score_breakdown = {
-        "Base": 40,
+        "Base": 30, # 기본 점수 하향 (40 -> 30)
         "Evidence": 0,
         "Prestige": 0,
         "Team": 0,
@@ -176,44 +169,41 @@ def evaluate_paper(paper_data):
         "Integrity Penalty": 0
     }
 
-    # 1. Raw Score (인기도 + IF)
-    # 인용수 점수
-    cite_score = int(10 + (math.log(citation_count + 1) * 15))
-    # IF 가산점 (실제 IF가 있으면 더 높게 반영)
-    if_score = int(impact_factor * 1.5) if impact_factor else (20 if is_top_tier else 0)
-    
-    raw_score = min(99, cite_score + if_score)
+    # 1. Raw Score (인기도)
+    # 로그 스케일 적용은 유지하되 계수 조정
+    raw_score = min(99, int(5 + (math.log(citation_count + 1) * 12))) # 10+15*log -> 5+12*log
+    if is_top_tier: raw_score = min(99, raw_score + 15)
 
     # 2. Debiased Score (내실)
-    debiased_base = 40
+    debiased_base = 30
     if has_evidence: 
-        debiased_base += 30 
-        score_breakdown["Evidence"] = 30
+        debiased_base += 25 # 30 -> 25
+        score_breakdown["Evidence"] = 25
     if is_big_team: 
         debiased_base += 10
         score_breakdown["Team"] = 10
     
     # Prestige 점수 (IF 기반)
     if impact_factor:
-        prestige_score = min(40, int(impact_factor)) # IF 그대로 점수 반영 (최대 40)
+        prestige_score = min(30, int(impact_factor * 0.8)) # IF 반영 비율 조정
         debiased_base += prestige_score
         score_breakdown["Prestige"] = prestige_score
     elif is_top_tier:
-        debiased_base += 20
-        score_breakdown["Prestige"] = 20
+        debiased_base += 15
+        score_breakdown["Prestige"] = 15
 
     # 문헌량 편향 제거
-    volume_discount = min(30, int(math.log(citation_count + 1) * 5))
+    volume_discount = min(25, int(math.log(citation_count + 1) * 4))
     
-    if age <= 2: volume_discount = int(volume_discount * 0.2)
+    if age <= 2: volume_discount = int(volume_discount * 0.1) # 최신 논문은 페널티 거의 없음
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
     score_breakdown["Volume Penalty"] = -volume_discount
     debiased_score = debiased_base - volume_discount
     
     if integrity_status != "valid":
-        penalty = debiased_score - 10
-        debiased_score = 10
+        penalty = debiased_score - 5
+        debiased_score = 5
         score_breakdown["Integrity Penalty"] = -penalty
         risk_reason = risk_reason or "데이터 신뢰도 낮음"
     elif age > 10 and citation_count < 5:
@@ -222,13 +212,13 @@ def evaluate_paper(paper_data):
         score_breakdown["Integrity Penalty"] = -penalty
         risk_reason = "도태된 연구 (Old & Low Cited)"
 
-    debiased_score = max(5, min(99, debiased_score))
+    debiased_score = max(5, min(95, debiased_score)) # 최대 95점으로 제한 (99점 방지)
 
     # 3. Bias Penalty & Type
     bias_penalty = raw_score - debiased_score
     
     potential_type = "normal"
-    if debiased_score > 75 and bias_penalty < 0:
+    if debiased_score > 70 and bias_penalty < 0: # 기준 완화 (75 -> 70)
         potential_type = "amazing" 
     elif bias_penalty > 30:
         potential_type = "bubble" 
@@ -246,7 +236,7 @@ def evaluate_paper(paper_data):
         "risk_reason": risk_reason,
         "has_evidence": has_evidence,
         "is_top_tier": is_top_tier,
-        "impact_factor": impact_factor, # IF 반환
+        "impact_factor": impact_factor,
         "is_big_team": is_big_team,
         "integrity_status": integrity_status,
         "score_breakdown": score_breakdown
@@ -471,12 +461,13 @@ with tab_search:
         search_btn = st.button("검색", type="primary", use_container_width=True)
 
     if search_btn and query:
-        with st.spinner("문헌량 편향 분석 및 데이터 처리 중..."):
+        with st.spinner("PubMed 데이터베이스 및 문헌량 편향 분석 중..."):
             results, summary, is_exact = search_crossref_api(query)
             st.session_state.search_results = results
             st.session_state.bias_summary = summary
             st.session_state.is_exact_search = is_exact
             st.session_state.search_page = 1 
+            # 검색 시 정렬 초기값 설정
             st.session_state.sort_option = "정확도 (Relevance)" if is_exact else "내실 (Debiased)"
             if not results: st.error("검색 결과가 없습니다.")
 
@@ -543,7 +534,6 @@ with tab_search:
                     if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
                     
-                    # [New] IF 검색 링크 추가
                     google_search_url = f"https://www.google.com/search?q={paper['journal'].replace(' ', '+')}+impact+factor+{paper['year']}"
                     
                     links_col1, links_col2 = st.columns(2)
