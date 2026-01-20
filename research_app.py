@@ -95,8 +95,15 @@ def evaluate_paper(paper_data):
     ]
     has_evidence = any(k in title_lower for k in evidence_keywords)
     
-    # 2. 저널 권위 (Journal Prestige)
-    top_journals = ['nature', 'science', 'cell', 'lancet', 'nejm', 'jama', 'ieee', 'pnas', 'advanced materials', 'cancer discovery', 'chem', 'acs', 'angewandte']
+    # 2. 저널 권위 (Journal Prestige) - [수정] 리스트 대폭 확장
+    top_journals = [
+        # 종합/기초과학
+        'nature', 'science', 'cell', 'pnas', 'plos', 'scientific reports', 'communications',
+        # 의학
+        'lancet', 'nejm', 'jama', 'bmj', 'blood', 'circulation', 'cancer', 'clinical', 'oncology', 'medicine',
+        # 화학/공학/물리
+        'chem', 'acs', 'angewandte', 'advanced materials', 'nano', 'ieee', 'acm', 'physics', 'biotech'
+    ]
     journal_lower = paper_data.get('journal', "").lower()
     is_top_tier = any(j in journal_lower for j in top_journals)
 
@@ -224,6 +231,7 @@ def search_crossref_api(query):
     years_list = []
 
     for idx, item in enumerate(items):
+        # 필터링
         if not item.get('DOI'): continue
         if not item.get('title'): continue
         
@@ -231,6 +239,7 @@ def search_crossref_api(query):
         invalid_titles = ["announcement", "editorial", "issue info", "table of contents", "front matter", "back matter", "author index", "subject index", "correction", "erratum", "publisher's note", "conference info", "trial number", "trial registration", "clinicaltrials.gov", "identifier", "&na;", "unknown", "calendar", "masthead", "abstracts", "session", "meeting", "symposium", "workshop", "chinese journal", "test", "protocol", "data descriptor", "dataset"]
         if any(inv in title_str for inv in invalid_titles): continue
         
+        # 통계용 데이터 수집
         cit = item.get('is-referenced-by-count', 0)
         citations_list.append(cit)
         
@@ -239,6 +248,7 @@ def search_crossref_api(query):
         elif item.get('created') and item['created'].get('date-parts'): y = item['created']['date-parts'][0][0]
         if y: years_list.append(y)
 
+        # 저자 체크
         if not item.get('author'): continue
         authors_raw = item['author']
         valid_authors = []
@@ -250,10 +260,12 @@ def search_crossref_api(query):
                 valid_authors.append(full)
         if not valid_authors: continue
 
+        # 메타데이터
         journal = item.get('container-title', ["Unknown Journal"])[0]
         ref_count = item.get('reference-count')
         pub_year = y if y else current_year - 5
         
+        # 평가 실행
         paper_data_for_eval = {
             'title': item['title'][0], 'year': pub_year, 'citations': cit, 
             'journal': journal, 'author_count': len(valid_authors), 'ref_count': ref_count
@@ -276,10 +288,12 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
+    # 통계 처리
     avg_citations = int(sum(citations_list) / len(citations_list)) if citations_list else 0
     if years_list:
         year_counts = Counter(years_list)
         most_common_year = year_counts.most_common(1)[0][0]
+        # 집중 시기 (대략적)
         min_y, max_y = min(years_list), max(years_list)
         if max_y - min_y > 10: period_str = f"{most_common_year-2}~{most_common_year+2}"
         else: period_str = f"{min_y}~{max_y}"
