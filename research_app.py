@@ -239,7 +239,9 @@ def evaluate_paper(paper_data):
         "impact_factor": impact_factor,
         "is_big_team": is_big_team,
         "integrity_status": integrity_status,
-        "score_breakdown": score_breakdown
+        "score_breakdown": score_breakdown,
+        "age": age, # 분석용
+        "citation_count": citation_count # 분석용
     }
 
 def search_crossref_api(query):
@@ -247,6 +249,7 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
+        # 대량 수집 (rows=1000, 통계용)
         url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
@@ -266,10 +269,12 @@ def search_crossref_api(query):
     # --- PubMed 실제 데이터 조회 ---
     pubmed_count = get_pubmed_count(clean_query)
     
+    # 편향 요약 통계 계산
     citations_list = []
     years_list = []
 
     for idx, item in enumerate(items):
+        # 필터링
         if not item.get('DOI'): continue
         if not item.get('title'): continue
         
@@ -277,6 +282,7 @@ def search_crossref_api(query):
         invalid_titles = ["announcement", "editorial", "issue info", "table of contents", "front matter", "back matter", "author index", "subject index", "correction", "erratum", "publisher's note", "conference info", "trial number", "trial registration", "clinicaltrials.gov", "identifier", "&na;", "unknown", "calendar", "masthead", "abstracts", "session", "meeting", "symposium", "workshop", "chinese journal", "test", "protocol", "data descriptor", "dataset"]
         if any(inv in title_str for inv in invalid_titles): continue
         
+        # 통계용 데이터 수집
         cit = item.get('is-referenced-by-count', 0)
         citations_list.append(cit)
         
@@ -285,6 +291,7 @@ def search_crossref_api(query):
         elif item.get('created') and item['created'].get('date-parts'): y = item['created']['date-parts'][0][0]
         if y: years_list.append(y)
 
+        # 저자 체크
         if not item.get('author'): continue
         authors_raw = item['author']
         valid_authors = []
@@ -296,10 +303,12 @@ def search_crossref_api(query):
                 valid_authors.append(full)
         if not valid_authors: continue
 
+        # 메타데이터
         journal = item.get('container-title', ["Unknown Journal"])[0]
         ref_count = item.get('reference-count')
         pub_year = y if y else current_year - 5
         
+        # 평가 실행
         paper_data_for_eval = {
             'title': item['title'][0], 'year': pub_year, 'citations': cit, 
             'journal': journal, 'author_count': len(valid_authors), 'ref_count': ref_count
@@ -322,10 +331,12 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
+    # 통계 처리
     avg_citations = int(sum(citations_list) / len(citations_list)) if citations_list else 0
     if years_list:
         year_counts = Counter(years_list)
         most_common_year = year_counts.most_common(1)[0][0]
+        # 집중 시기 (대략적)
         min_y, max_y = min(years_list), max(years_list)
         if max_y - min_y > 10: period_str = f"{most_common_year-2}~{most_common_year+2}"
         else: period_str = f"{min_y}~{max_y}"
@@ -358,6 +369,9 @@ if 'bias_summary' not in st.session_state: st.session_state['bias_summary'] = {}
 if 'search_page' not in st.session_state: st.session_state['search_page'] = 1
 if 'is_exact_search' not in st.session_state: st.session_state['is_exact_search'] = False
 if 'sort_option' not in st.session_state: st.session_state['sort_option'] = "내실 (Debiased)"
+# [New] 가중치 프리셋 상태
+if 'analysis_weights' not in st.session_state: st.session_state['analysis_weights'] = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+if 'current_preset' not in st.session_state: st.session_state['current_preset'] = "⚖️ 밸런스"
 
 def get_level_info(score):
     level_threshold = 500
@@ -600,17 +614,52 @@ with tab_analysis:
     if not st.session_state.search_results:
         st.info("먼저 '논문 검색' 탭에서 검색을 수행해주세요.")
     else:
-        st.markdown("### 🛠️ 맞춤형 지표 분석")
-        st.markdown("각 지표의 가중치를 조절하여 나만의 기준(Custom Score)으로 논문을 재평가하고 정렬합니다.")
-        with st.container(border=True):
-            col_w1, col_w2, col_w3 = st.columns(3)
-            with col_w1: w_evidence = st.slider("🔬 증거 (Evidence)", 0.0, 3.0, 1.0, help="실험적 근거 유무")
-            with col_w2: w_prestige = st.slider("👑 권위 (Prestige)", 0.0, 3.0, 1.0, help="Top Tier 저널 여부")
-            with col_w3: w_recency = st.slider("📅 최신성 (Recency)", 0.0, 3.0, 1.0, help="최신 논문 우대")
-            col_w4, col_w5 = st.columns(2)
-            with col_w4: w_team = st.slider("👥 규모 (Team)", 0.0, 3.0, 1.0, help="대규모 연구팀")
-            with col_w5: w_scarcity = st.slider("💎 희소성 (Scarcity)", 0.0, 3.0, 1.0, help="인용이 적은 원석 발굴")
+        st.markdown("### 🛠️ 맞춤형 지표 분석 (프리셋 모드)")
+        st.markdown("원하는 분석 스타일을 선택하면, AI가 가중치를 자동으로 조절하여 논문을 재평가합니다.")
+        
+        # 가중치 변수 초기화 (기본값: 밸런스)
+        if 'analysis_weights' not in st.session_state:
+            st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+            st.session_state.current_preset = "⚖️ 밸런스"
 
+        # 프리셋 버튼 UI
+        col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+        
+        with col_p1:
+            if st.button("⚖️ 밸런스", use_container_width=True, help="모든 지표를 골고루 반영합니다."):
+                st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
+                st.session_state.current_preset = "⚖️ 밸런스"
+                st.rerun()
+
+        with col_p2:
+            if st.button("💎 숨겨진 원석", use_container_width=True, help="인용은 적지만 증거가 확실한 논문을 찾습니다."):
+                st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 1.0, "team": 1.0, "scarcity": 3.0}
+                st.session_state.current_preset = "💎 숨겨진 원석"
+                st.rerun()
+                
+        with col_p3:
+            if st.button("🚀 최신 트렌드", use_container_width=True, help="최신성과 실험적 근거를 최우선으로 봅니다."):
+                st.session_state.analysis_weights = {"evidence": 2.0, "prestige": 0.5, "recency": 3.0, "team": 0.5, "scarcity": 1.0}
+                st.session_state.current_preset = "🚀 최신 트렌드"
+                st.rerun()
+
+        with col_p4:
+            if st.button("👑 권위주의", use_container_width=True, help="유명 저널과 대규모 연구팀을 선호합니다."):
+                st.session_state.analysis_weights = {"evidence": 1.0, "prestige": 3.0, "recency": 0.5, "team": 2.0, "scarcity": 0.5}
+                st.session_state.current_preset = "👑 권위주의"
+                st.rerun()
+
+        st.info(f"현재 적용된 분석 모드: **{st.session_state.current_preset}**")
+
+        # 가중치 변수 할당
+        w = st.session_state.analysis_weights
+        w_evidence = w["evidence"]
+        w_prestige = w["prestige"]
+        w_recency = w["recency"]
+        w_team = w["team"]
+        w_scarcity = w["scarcity"]
+
+        # 재계산 로직
         analyzed_papers = []
         for paper in st.session_state.search_results:
             details = paper.get('score_breakdown', {})
