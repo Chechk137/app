@@ -568,9 +568,9 @@ with tab_analysis:
                 st.rerun()
 
         with col_p4:
-            if st.button("👑 권위주의", use_container_width=True, help="Big Team focused (대규모 연구팀을 선호합니다.)"):
+            if st.button("👑 대규모", use_container_width=True, help="Big Team focused (대규모 연구팀을 선호합니다.)"):
                 st.session_state.analysis_weights = {"evidence": 1.0, "recency": 0.5, "team": 3.0, "scarcity": 0.5}
-                st.session_state.current_preset = "👑 권위주의"
+                st.session_state.current_preset = "👑 대규모"
                 st.rerun()
 
         st.info(f"Current Mode (현재 적용된 분석 모드): **{st.session_state.current_preset}**")
@@ -730,3 +730,4 @@ with tab_trash:
                         st.toast("Deleted Forever (영구 삭제됨)", icon="🔥")
                         save_user_data(st.session_state.user_id)
                         st.rerun()
+
