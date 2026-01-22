@@ -7,6 +7,8 @@ import json
 import os
 import math
 import re
+import pandas as pd
+import altair as alt
 from collections import Counter
 
 # --- 1. 설정 및 상수 ---
@@ -512,6 +514,37 @@ with tab_search:
             else:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
+
+        # [New] Scatter Plot (Bubble vs Hidden Gem)
+        st.markdown("""<div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px;">📈 거품 vs 원석 분포도</div>""", unsafe_allow_html=True)
+        
+        # Prepare data for Altair
+        chart_data = []
+        for p in st.session_state.search_results:
+            chart_data.append({
+                "Title": p['title'],
+                "Impact": p['raw_score'],
+                "Potential": p['debiased_score'],
+                "Type": p['potential_type']
+            })
+        
+        if chart_data:
+            df_chart = pd.DataFrame(chart_data)
+            
+            # Type Color Mapping
+            # Domain: ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
+            domain = ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
+            range_ = ["#10b981", "#ef4444", "#6b7280", "#3b82f6", "#f59e0b", "#f59e0b", "#8b5cf6"]
+            
+            scatter = alt.Chart(df_chart).mark_circle(size=60).encode(
+                x=alt.X('Impact', title='Impact (인기도/영향력)'),
+                y=alt.Y('Potential', title='Potential (잠재력/내실)'),
+                color=alt.Color('Type', scale=alt.Scale(domain=domain, range=range_), legend=None),
+                tooltip=['Title', 'Impact', 'Potential', 'Type']
+            ).interactive()
+            
+            st.altair_chart(scatter, use_container_width=True)
+            st.info("💡 **좌측 상단(High Potential, Low Impact)** 영역에 위치한 논문이 바로 숨겨진 원석(Hidden Gem)입니다!")
 
         st.markdown("""<div style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">🔃 정렬 기준 선택</div>""", unsafe_allow_html=True)
         sort_col, _ = st.columns([2, 1])
