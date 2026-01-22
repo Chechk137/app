@@ -70,7 +70,7 @@ def get_current_year():
 
 def get_pubmed_count(query):
     try:
-        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        url = "[https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi](https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi)"
         params = {
             "db": "pubmed",
             "term": query,
@@ -89,7 +89,7 @@ def get_pubmed_count(query):
 def get_translated_title(text):
     try:
         # Google Translate GTX endpoint (Free, Unofficial)
-        url = "https://translate.googleapis.com/translate_a/single"
+        url = "[https://translate.googleapis.com/translate_a/single](https://translate.googleapis.com/translate_a/single)"
         params = {
             "client": "gtx",
             "sl": "auto",
@@ -255,7 +255,7 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
+        url = f"[https://api.crossref.org/works?query=](https://api.crossref.org/works?query=){clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
@@ -322,7 +322,7 @@ def search_crossref_api(query):
             'year': pub_year,
             'citations': cit,
             'ref_count': ref_count if ref_count is not None else 0,
-            'url': f"https://doi.org/{item['DOI']}",
+            'url': f"[https://doi.org/](https://doi.org/){item['DOI']}",
             **eval_result,
             'is_reviewed': False,
             'original_rank': idx
@@ -1080,4 +1080,3 @@ with tab_trash:
                         st.toast("영구 삭제됨", icon="🔥")
                         save_user_data(st.session_state.user_id)
                         st.rerun()
-```
