@@ -677,9 +677,10 @@ with tab_analysis:
                 c1, c2 = st.columns([5, 2])
                 with c1:
                     # [Changed] Title Display
+                    # Removed hardcoded color and help cursor to match Search tab style
                     translated_title = get_translated_title(paper['title'])
                     st.markdown(
-                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
                         unsafe_allow_html=True
                     )
                     
