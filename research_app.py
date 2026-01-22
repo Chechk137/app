@@ -501,8 +501,9 @@ with tab_search:
 
     if st.session_state.search_results:
         summary = st.session_state.bias_summary
-        with st.container(border=True):
-            st.markdown("""<div style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">🔍 편향 요약</div>""", unsafe_allow_html=True)
+        
+        # [Modified] Using expander instead of container
+        with st.expander("🔍 편향 요약", expanded=True):
             bc1, bc2, bc3 = st.columns(3)
             pub_cnt = summary['pubmed_count']
             pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
@@ -515,10 +516,8 @@ with tab_search:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
 
-        # [New] Scatter Plot (Bubble vs Hidden Gem) with Quadrants - Wrapped in Container
-        with st.container(border=True):
-            st.markdown("""<div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px;">📈 거품 vs 원석 분포도</div>""", unsafe_allow_html=True)
-            
+        # [Modified] Scatter Plot (Bubble vs Hidden Gem) with Quadrants - Using expander
+        with st.expander("📈 거품 vs 원석 분포도", expanded=True):
             # Prepare data for Altair
             chart_data = []
             for p in st.session_state.search_results:
