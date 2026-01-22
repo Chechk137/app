@@ -74,6 +74,26 @@ def get_pubmed_count(query):
     except Exception:
         return None
 
+# [New] 번역 함수 추가
+@st.cache_data
+def get_translated_title(text):
+    try:
+        # Google Translate GTX endpoint (Free, Unofficial)
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "ko",
+            "dt": "t",
+            "q": text
+        }
+        response = requests.get(url, params=params, timeout=2)
+        if response.status_code == 200:
+            return response.json()[0][0][0]
+    except Exception:
+        pass
+    return "번역 실패 (연결 확인 필요)"
+
 def evaluate_paper(paper_data):
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
@@ -473,7 +493,13 @@ with tab_search:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    st.markdown(f"#### {paper['title']}")
+                    # [Changed] Title Display with Tooltip & Translation
+                    translated_title = get_translated_title(paper['title'])
+                    st.markdown(
+                        f"""<div title="{translated_title}" style="font-size:1.2rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                        unsafe_allow_html=True
+                    )
+                    
                     tags = []
                     if paper['has_evidence']: tags.append("🔬 Evidence")
                     if paper['is_big_team']: tags.append("👥 Big Team")
@@ -646,7 +672,12 @@ with tab_analysis:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    st.markdown(f"**{start_idx_an + i + 1}. {paper['title']}**")
+                    # [Changed] Title Display
+                    translated_title = get_translated_title(paper['title'])
+                    st.markdown(
+                        f"""<div title="{translated_title}" style="font-size:1.1rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
+                        unsafe_allow_html=True
+                    )
                     
                     # [New] 기본 정보 표시 추가
                     tags = []
@@ -661,7 +692,7 @@ with tab_analysis:
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
-                    with st.expander("점수 상세 지표 보기"):
+                    with st.expander("점수 상세 구성 보기"):
                         details = paper.get('score_breakdown', {})
                         # [Modified] Chart Keys: English (Korean)
                         chart_data = {
@@ -732,7 +763,13 @@ with tab_inventory:
                     elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
                     else: status_emoji, status_text = "✅", "검증됨"
 
-                st.markdown(f"**{paper['title']}**")
+                # [Changed] Title Display
+                translated_title = get_translated_title(paper['title'])
+                st.markdown(
+                    f"""<div title="{translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                    unsafe_allow_html=True
+                )
+                
                 st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
                 
                 c_btn1, c_btn2 = st.columns([2, 1])
@@ -785,7 +822,13 @@ with tab_trash:
     for i, paper in enumerate(st.session_state.trash):
         with cols[i % 2]:
             with st.container(border=True):
-                st.markdown(f"**{paper['title']}**")
+                # [Changed] Title Display
+                translated_title = get_translated_title(paper['title'])
+                st.markdown(
+                    f"""<div title="{translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                    unsafe_allow_html=True
+                )
+                
                 st.caption(f"삭제됨 | {paper['journal']}")
                 c1, c2 = st.columns(2)
                 with c1:
