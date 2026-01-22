@@ -862,24 +862,22 @@ with tab_inventory:
                         use_container_width=True
                     )
                 
-                # [New] BibTeX Usage Guide
+                # [New] BibTeX Usage Guide (Toggleable)
                 st.markdown("---")
-                st.markdown("#### 📖 Overleaf로 BibTeX 쓰는 초간단 루트")
-                st.markdown("🔗 [Overleaf 로그인 바로가기](https://www.overleaf.com/login)")
-                
-                st.markdown(r"""
-                BibTeX에서 .bib 파일은 참고문헌이 “출력된 결과물”이 아니라, 논문 정보가 정리되어 있는 데이터 파일에 해당한다. 그래서 .bib 파일을 그냥 열어서는 참고문헌 목록이 보이지 않고, 반드시 LaTeX 문서가 이 파일을 불러와 PDF로 출력해 주어야 한다. Overleaf를 사용하는 이유는 이 과정을 가장 간단하게 처리해 주기 때문이다.
-                
-                Overleaf에서는 먼저 새 프로젝트를 만들고, 기본으로 생성된 main.tex 파일과 함께 가지고 있는 .bib 파일을 같은 프로젝트 안에 업로드한다. 그다음 main.tex에서 본문을 작성하고, 문서의 끝부분, 즉 `\end{document}` 바로 위에 BibTeX 관련 코드를 추가한다. 이때 `\bibliography{references}`는 “references.bib라는 파일을 참고문헌 데이터로 사용하겠다”는 의미이고, 확장자 .bib는 쓰지 않는다. 만약 .bib 파일 안에 들어 있는 모든 논문을 한꺼번에 참고문헌으로 출력하고 싶다면 `\nocite{*}`를 함께 넣어 주면 된다.
-                
-                여기서 `\bibliographystyle{unsrt}`는 참고문헌의 출력 형식과 정렬 방식을 지정하는 역할을 한다. unsrt는 “정렬하지 않는다(unsorted)”는 뜻으로, 본문에서 인용된 순서 그대로 참고문헌을 나열하라는 의미다. 즉, 서론에서 처음 인용한 논문이 1번, 그다음에 인용한 논문이 2번이 되는 방식이다. 이 방식은 자연과학, 의생명 분야 논문이나 캡스톤 보고서에서 가장 흔히 쓰이며, 독자가 본문 흐름을 따라가면서 참고문헌을 확인하기 쉽다는 장점이 있다.
-                
-                이렇게 .bib 파일을 업로드하고, 문서 맨 아래에 `\bibliographystyle{unsrt}`와 `\bibliography{bib 파일 이름}`를 추가한 뒤 Recompile 버튼을 누르면, Overleaf가 LaTeX와 BibTeX를 자동으로 실행해 주고 PDF에 참고문헌 목록을 만들어 준다. 사용자는 컴파일 순서를 신경 쓸 필요가 없고, 파일 이름만 정확히 맞추면 된다.
-                
-                정리하면, Overleaf에서 BibTeX를 쓰는 핵심은 “.bib 파일은 데이터, .tex 파일은 이를 출력하는 도구”라는 점을 이해하고, 문서 끝에 참고문헌 스타일과 데이터 파일을 지정해 주는 것이다. `\bibliographystyle{unsrt}`는 그중에서도 “참고문헌을 어떤 규칙으로 보여줄지”를 정하는 중요한 한 줄이라고 보면 된다.
-                """)
-                
-                st.code(r"""
+                if st.checkbox("📖 Overleaf로 BibTeX 쓰는 초간단 루트 (가이드 보기)"):
+                    st.markdown(r"""
+                    BibTeX에서 .bib 파일은 참고문헌이 “출력된 결과물”이 아니라, 논문 정보가 정리되어 있는 데이터 파일에 해당한다. 그래서 .bib 파일을 그냥 열어서는 참고문헌 목록이 보이지 않고, 반드시 LaTeX 문서가 이 파일을 불러와 PDF로 출력해 주어야 한다. Overleaf를 사용하는 이유는 이 과정을 가장 간단하게 처리해 주기 때문이다.
+                    
+                    Overleaf에서는 먼저 새 프로젝트를 만들고, 기본으로 생성된 main.tex 파일과 함께 가지고 있는 .bib 파일을 같은 프로젝트 안에 업로드한다. 그다음 main.tex에서 본문을 작성하고, 문서의 끝부분, 즉 `\end{document}` 바로 위에 BibTeX 관련 코드를 추가한다. 이때 `\bibliography{references}`는 “references.bib라는 파일을 참고문헌 데이터로 사용하겠다”는 의미이고, 확장자 .bib는 쓰지 않는다. 만약 .bib 파일 안에 들어 있는 모든 논문을 한꺼번에 참고문헌으로 출력하고 싶다면 `\nocite{*}`를 함께 넣어 주면 된다.
+                    
+                    여기서 `\bibliographystyle{unsrt}`는 참고문헌의 출력 형식과 정렬 방식을 지정하는 역할을 한다. unsrt는 “정렬하지 않는다(unsorted)”는 뜻으로, 본문에서 인용된 순서 그대로 참고문헌을 나열하라는 의미다. 즉, 서론에서 처음 인용한 논문이 1번, 그다음에 인용한 논문이 2번이 되는 방식이다. 이 방식은 자연과학, 의생명 분야 논문이나 캡스톤 보고서에서 가장 흔히 쓰이며, 독자가 본문 흐름을 따라가면서 참고문헌을 확인하기 쉽다는 장점이 있다.
+                    
+                    이렇게 .bib 파일을 업로드하고, 문서 맨 아래에 `\bibliographystyle{unsrt}`와 `\bibliography{bib 파일 이름}`를 추가한 뒤 Recompile 버튼을 누르면, Overleaf가 LaTeX와 BibTeX를 자동으로 실행해 주고 PDF에 참고문헌 목록을 만들어 준다. 사용자는 컴파일 순서를 신경 쓸 필요가 없고, 파일 이름만 정확히 맞추면 된다.
+                    
+                    정리하면, Overleaf에서 BibTeX를 쓰는 핵심은 “.bib 파일은 데이터, .tex 파일은 이를 출력하는 도구”라는 점을 이해하고, 문서 끝에 참고문헌 스타일과 데이터 파일을 지정해 주는 것이다. `\bibliographystyle{unsrt}`는 그중에서도 “참고문헌을 어떤 규칙으로 보여줄지”를 정하는 중요한 한 줄이라고 보면 된다.
+                    """)
+                    
+                    st.code(r"""
 \documentclass{article}
 \usepackage{graphicx} % Required for inserting images
 \title{hello world}
