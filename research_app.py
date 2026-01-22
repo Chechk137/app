@@ -937,9 +937,9 @@ with tab_inventory:
                 st.code(r"""
 \documentclass{article}
 \usepackage{graphicx} % Required for inserting images
-\title{hello world}
-\author{Checkmate 137.}
-\date{January 2026}
+\title{Title}
+\author{Name}
+\date{Month Year}
 \begin{document}
 \maketitle
 \section{Introduction}
@@ -1080,3 +1080,4 @@ with tab_trash:
                         st.toast("영구 삭제됨", icon="🔥")
                         save_user_data(st.session_state.user_id)
                         st.rerun()
+```
