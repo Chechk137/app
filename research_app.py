@@ -840,6 +840,30 @@ with tab_inventory:
         if not st.session_state.inventory: 
             st.info("수집된 논문이 없습니다.")
         else:
+            # [New] Export UI - Added based on user request
+            with st.expander("📂 서지 정보 내보내기 (BibTeX / CSV)"):
+                e_col1, e_col2 = st.columns(2)
+                with e_col1:
+                    bib_data = convert_to_bibtex(st.session_state.inventory)
+                    st.download_button(
+                        label="BibTeX 다운로드 (.bib)",
+                        data=bib_data,
+                        file_name="my_research_inventory.bib",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                with e_col2:
+                    csv_data = convert_to_csv(st.session_state.inventory)
+                    st.download_button(
+                        label="CSV 다운로드 (.csv)",
+                        data=csv_data,
+                        file_name="my_research_inventory.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            
+            st.divider()
+
             # [New] 정렬 방식 선택
             col_sort, _ = st.columns([2, 5])
             with col_sort:
