@@ -616,7 +616,8 @@ with tab_search:
                     st.session_state.search_page += 1
                     st.rerun()
             with pg_cols[8]:
-                 new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_an_input")
+                 # [Fixed] Duplicate key error by renaming key from 'nav_an_input' to 'nav_search_input'
+                 new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_search_input")
                  if new_page != current_page:
                     st.session_state.search_page = new_page
                     st.rerun()
