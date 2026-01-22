@@ -494,9 +494,13 @@ with tab_search:
                 c1, c2 = st.columns([5, 2])
                 with c1:
                     # [Changed] Title Display with Tooltip & Translation
+                    # Removed hardcoded color to support dark mode
+                    # Changed cursor from 'help' (?) to default (text selection) or 'progress' isn't suitable for static text
+                    # User requested to change '?' to 'Translating', implying they disliked the help cursor. 
+                    # Reverting to default cursor for text creates the most 'original' feel.
                     translated_title = get_translated_title(paper['title'])
                     st.markdown(
-                        f"""<div title="{translated_title}" style="font-size:1.2rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
                         unsafe_allow_html=True
                     )
                     
@@ -766,7 +770,7 @@ with tab_inventory:
                 # [Changed] Title Display
                 translated_title = get_translated_title(paper['title'])
                 st.markdown(
-                    f"""<div title="{translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                    f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
                     unsafe_allow_html=True
                 )
                 
@@ -825,7 +829,7 @@ with tab_trash:
                 # [Changed] Title Display
                 translated_title = get_translated_title(paper['title'])
                 st.markdown(
-                    f"""<div title="{translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px; cursor:help;">{paper['title']}</div>""", 
+                    f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px;">{paper['title']}</div>""", 
                     unsafe_allow_html=True
                 )
                 
