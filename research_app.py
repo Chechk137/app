@@ -449,7 +449,7 @@ with tab_search:
     if st.session_state.search_results:
         summary = st.session_state.bias_summary
         with st.container(border=True):
-            st.markdown("### 🔍 편향 요약")
+            st.markdown("""<div style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">🔍 편향 요약</div>""", unsafe_allow_html=True)
             bc1, bc2, bc3 = st.columns(3)
             pub_cnt = summary['pubmed_count']
             pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
@@ -462,7 +462,7 @@ with tab_search:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
 
-        st.markdown("##### 🔃 정렬 기준 선택")
+        st.markdown("""<div style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">🔃 정렬 기준 선택</div>""", unsafe_allow_html=True)
         sort_col, _ = st.columns([2, 1])
         with sort_col:
             sort_opt = st.radio(
@@ -577,7 +577,7 @@ with tab_analysis:
     if not st.session_state.search_results:
         st.info("먼저 '논문 검색' 탭에서 검색을 수행해주세요.")
     else:
-        st.markdown("### 🛠️ 맞춤형 지표 분석")
+        st.markdown("""<div style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">🛠️ 맞춤형 지표 분석</div>""", unsafe_allow_html=True)
         st.markdown("각 지표의 가중치를 조절하여 나만의 기준(Custom Potential)으로 논문을 재평가하고 정렬합니다.")
         
         if 'analysis_weights' not in st.session_state:
@@ -769,7 +769,7 @@ with tab_inventory:
     
     with inv_info:
         with st.container(border=True):
-            st.markdown("#### 💡 가치 산정 공식")
+            st.markdown("""<div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem;">💡 가치 산정 공식</div>""", unsafe_allow_html=True)
             st.markdown("""
             **1. 심층 검증 (성공)**
             > **Potential + 50% 보너스**
