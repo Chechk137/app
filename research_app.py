@@ -113,6 +113,41 @@ def highlight_text(text):
     
     return pattern.sub(replace, text)
 
+# [New] 서지 정보 내보내기 함수들
+def convert_to_bibtex(inventory_list):
+    bibtex_entries = []
+    for paper in inventory_list:
+        # Citation Key 생성 (첫 저자 성 + 연도)
+        first_author = paper['authors'][0].split()[-1] if paper['authors'] else "Unknown"
+        # 영문/숫자만 남기기
+        safe_key = re.sub(r'\W+', '', f"{first_author}{paper['year']}")
+        
+        authors_formatted = " and ".join(paper['authors'])
+        
+        entry = f"""@article{{{safe_key},
+  title = {{{paper['title']}}},
+  author = {{{authors_formatted}}},
+  journal = {{{paper['journal']}}},
+  year = {{{paper['year']}}},
+  doi = {{{paper['id']}}}
+}}"""
+        bibtex_entries.append(entry)
+    return "\n\n".join(bibtex_entries)
+
+def convert_to_csv(inventory_list):
+    # CSV Header
+    lines = ["DOI,Title,Authors,Journal,Year,Citations,MyScore"]
+    for paper in inventory_list:
+        # CSV Escape (따옴표 처리)
+        safe_title = paper['title'].replace('"', '""')
+        safe_authors = "; ".join(paper['authors']).replace('"', '""')
+        safe_journal = paper['journal'].replace('"', '""')
+        score = paper.get('final_score', paper.get('debiased_score', 0))
+        
+        line = f"\"{paper['id']}\",\"{safe_title}\",\"{safe_authors}\",\"{safe_journal}\",{paper['year']},{paper['citations']},{score}"
+        lines.append(line)
+    return "\n".join(lines)
+
 def evaluate_paper(paper_data):
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
