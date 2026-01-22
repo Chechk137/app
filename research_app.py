@@ -679,7 +679,7 @@ with tab_analysis:
                     # [Changed] Title Display
                     translated_title = get_translated_title(paper['title'])
                     st.markdown(
-                        f"""<div title="{translated_title}" style="font-size:1.1rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; color:#31333F; margin-bottom:5px; cursor:help;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
                         unsafe_allow_html=True
                     )
                     
@@ -805,7 +805,7 @@ with tab_inventory:
 
                 with c_btn2:
                     if st.button("삭제", key=f"del_{i}", use_container_width=True):
-                        deduction = paper.get('final_score', paper['debiased_score'])
+                        deduction = paper.get('final_score', paper.get('debiased_score', 0))
                         st.session_state.score = max(0, st.session_state.score - deduction)
                         removed = st.session_state.inventory.pop(i)
                         st.session_state.trash.append(removed)
@@ -839,7 +839,7 @@ with tab_trash:
                     if st.button("복구", key=f"rest_{i}", use_container_width=True):
                         restored = st.session_state.trash.pop(i)
                         st.session_state.inventory.append(restored)
-                        r_score = restored.get('final_score', restored['debiased_score'])
+                        r_score = restored.get('final_score', restored.get('debiased_score', 0))
                         st.session_state.score += r_score
                         st.toast(f"복구 완료 (+{r_score}점)", icon="♻️")
                         save_user_data(st.session_state.user_id)
