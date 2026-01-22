@@ -515,58 +515,59 @@ with tab_search:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
 
-        # [New] Scatter Plot (Bubble vs Hidden Gem) with Quadrants
-        st.markdown("""<div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px;">📈 거품 vs 원석 분포도</div>""", unsafe_allow_html=True)
-        
-        # Prepare data for Altair
-        chart_data = []
-        for p in st.session_state.search_results:
-            chart_data.append({
-                "Title": p['title'],
-                "Impact": p['raw_score'],
-                "Potential": p['debiased_score'],
-                "Type": p['potential_type']
-            })
-        
-        if chart_data:
-            df_chart = pd.DataFrame(chart_data)
+        # [New] Scatter Plot (Bubble vs Hidden Gem) with Quadrants - Wrapped in Container
+        with st.container(border=True):
+            st.markdown("""<div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px;">📈 거품 vs 원석 분포도</div>""", unsafe_allow_html=True)
             
-            # Type Color Mapping
-            # Domain: ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
-            domain = ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
-            range_ = ["#10b981", "#ef4444", "#6b7280", "#3b82f6", "#f59e0b", "#f59e0b", "#8b5cf6"]
+            # Prepare data for Altair
+            chart_data = []
+            for p in st.session_state.search_results:
+                chart_data.append({
+                    "Title": p['title'],
+                    "Impact": p['raw_score'],
+                    "Potential": p['debiased_score'],
+                    "Type": p['potential_type']
+                })
             
-            # Base chart with fixed domain [0, 100] for quadrants
-            base = alt.Chart(df_chart).encode(
-                x=alt.X('Impact', title='Impact (인기도/영향력)', scale=alt.Scale(domain=[0, 100])),
-                y=alt.Y('Potential', title='Potential (잠재력/내실)', scale=alt.Scale(domain=[0, 100]))
-            )
+            if chart_data:
+                df_chart = pd.DataFrame(chart_data)
+                
+                # Type Color Mapping
+                # Domain: ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
+                domain = ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
+                range_ = ["#10b981", "#ef4444", "#6b7280", "#3b82f6", "#f59e0b", "#f59e0b", "#8b5cf6"]
+                
+                # Base chart with fixed domain [0, 100] for quadrants
+                base = alt.Chart(df_chart).encode(
+                    x=alt.X('Impact', title='Impact (인기도/영향력)', scale=alt.Scale(domain=[0, 100])),
+                    y=alt.Y('Potential', title='Potential (잠재력/내실)', scale=alt.Scale(domain=[0, 100]))
+                )
 
-            # 1. Scatter Points
-            scatter = base.mark_circle(size=60).encode(
-                color=alt.Color('Type', scale=alt.Scale(domain=domain, range=range_), legend=None),
-                tooltip=['Title', 'Impact', 'Potential', 'Type']
-            )
+                # 1. Scatter Points
+                scatter = base.mark_circle(size=60).encode(
+                    color=alt.Color('Type', scale=alt.Scale(domain=domain, range=range_), legend=None),
+                    tooltip=['Title', 'Impact', 'Potential', 'Type']
+                )
 
-            # 2. Quadrant Lines (Threshold: 50)
-            h_rule = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(y='y')
-            v_rule = alt.Chart(pd.DataFrame({'x': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(x='x')
+                # 2. Quadrant Lines (Threshold: 50)
+                h_rule = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(y='y')
+                v_rule = alt.Chart(pd.DataFrame({'x': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(x='x')
 
-            # 3. Area Labels
-            text_df = pd.DataFrame({
-                'x': [25, 85], 
-                'y': [90, 10], 
-                'label': ['💎 Hidden Gem (원석)', '🫧 Bubble (거품)']
-            })
-            text_layer = alt.Chart(text_df).mark_text(
-                align='center', baseline='middle', fontSize=13, fontWeight='bold', color='gray', opacity=0.8
-            ).encode(x='x', y='y', text='label')
-            
-            # Combine Layers
-            final_chart = (scatter + h_rule + v_rule + text_layer).interactive()
-            
-            st.altair_chart(final_chart, use_container_width=True)
-            st.info("💡 **좌측 상단(High Potential, Low Impact)** 영역에 위치한 논문이 바로 숨겨진 원석(Hidden Gem)입니다!")
+                # 3. Area Labels
+                text_df = pd.DataFrame({
+                    'x': [25, 85], 
+                    'y': [90, 10], 
+                    'label': ['💎 Hidden Gem (원석)', '🫧 Bubble (거품)']
+                })
+                text_layer = alt.Chart(text_df).mark_text(
+                    align='center', baseline='middle', fontSize=13, fontWeight='bold', color='gray', opacity=0.8
+                ).encode(x='x', y='y', text='label')
+                
+                # Combine Layers
+                final_chart = (scatter + h_rule + v_rule + text_layer).interactive()
+                
+                st.altair_chart(final_chart, use_container_width=True)
+                st.info("💡 **좌측 상단(High Potential, Low Impact)** 영역에 위치한 논문이 바로 숨겨진 원석(Hidden Gem)입니다!")
 
         st.markdown("""<div style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">🔃 정렬 기준 선택</div>""", unsafe_allow_html=True)
         sort_col, _ = st.columns([2, 1])
