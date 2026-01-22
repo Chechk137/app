@@ -421,6 +421,10 @@ with st.sidebar:
     2. "키워드"
         : 따옴표 검색 시 정확도 순으로 결과 노출
     """)
+    
+    # [New] Mobile Support
+    st.divider()
+    show_translation = st.checkbox("한글 번역 항상 보기 (모바일용)", value=False)
 
 tab_search, tab_analysis, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📊 지표 분석", "📚 내 서재", "🗑️ 휴지통"])
 
@@ -503,6 +507,8 @@ with tab_search:
                         f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
                         unsafe_allow_html=True
                     )
+                    if show_translation:
+                        st.caption(f"🇰🇷 {translated_title}")
                     
                     tags = []
                     if paper['has_evidence']: tags.append("🔬 Evidence")
@@ -683,6 +689,8 @@ with tab_analysis:
                         f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
                         unsafe_allow_html=True
                     )
+                    if show_translation:
+                        st.caption(f"🇰🇷 {translated_title}")
                     
                     # [New] 기본 정보 표시 추가
                     tags = []
@@ -774,6 +782,8 @@ with tab_inventory:
                     f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
                     unsafe_allow_html=True
                 )
+                if show_translation:
+                    st.caption(f"🇰🇷 {translated_title}")
                 
                 st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
                 
@@ -833,6 +843,8 @@ with tab_trash:
                     f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px;">{paper['title']}</div>""", 
                     unsafe_allow_html=True
                 )
+                if show_translation:
+                    st.caption(f"🇰🇷 {translated_title}")
                 
                 st.caption(f"삭제됨 | {paper['journal']}")
                 c1, c2 = st.columns(2)
