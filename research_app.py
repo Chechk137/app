@@ -6,9 +6,17 @@ import time
 import json
 import os
 import math
+import re
 from collections import Counter
 
 # --- 1. 설정 및 상수 ---
+
+# [New] 하이라이팅 및 평가에 사용할 핵심 키워드 상수화
+EVIDENCE_KEYWORDS = [
+    'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
+    'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
+    'evaluation', 'characterization', 'properties', 'performance', 'application'
+]
 
 MISSIONS = [
     {"id": 1, "text": "인용 100회 이상 논문 1편 수집", "type": "citation", "target": 100, "count": 1, "reward": 150},
@@ -94,6 +102,17 @@ def get_translated_title(text):
         pass
     return "번역 실패 (연결 확인 필요)"
 
+# [New] 키워드 하이라이팅 함수
+def highlight_text(text):
+    # 키워드들을 정규식 패턴으로 컴파일 (대소문자 무시)
+    pattern = re.compile('|'.join(map(re.escape, EVIDENCE_KEYWORDS)), re.IGNORECASE)
+    
+    def replace(match):
+        # 매칭된 단어에 스타일 적용 (연한 초록색 배경)
+        return f"<span style='background-color: #d1fae5; color: #065f46; padding: 0 4px; border-radius: 4px; font-weight: bold;'>{match.group(0)}</span>"
+    
+    return pattern.sub(replace, text)
+
 def evaluate_paper(paper_data):
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
@@ -101,13 +120,8 @@ def evaluate_paper(paper_data):
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
-    # 1. 키워드 (Evidence)
-    evidence_keywords = [
-        'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
-        'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
-        'evaluation', 'characterization', 'properties', 'performance', 'application'
-    ]
-    has_evidence = any(k in title_lower for k in evidence_keywords)
+    # 1. 키워드 (Evidence) - 상수로 변경
+    has_evidence = any(k in title_lower for k in EVIDENCE_KEYWORDS)
     
     # 2. 연구팀 규모 (Team)
     author_count = paper_data.get('author_count', 1)
@@ -422,9 +436,11 @@ with st.sidebar:
         : 따옴표 검색 시 정확도 순으로 결과 노출
     """)
     
-    # [New] Mobile Support
     st.divider()
+    # [New] Mobile Support Option
     show_translation = st.checkbox("한글 번역 항상 보기 (모바일용)", value=False)
+    # [New] Highlight Option
+    show_highlight = st.checkbox("키워드 하이라이팅 (Visual Evidence)", value=True, help="점수에 긍정적 영향을 준 핵심 단어를 강조합니다.")
 
 tab_search, tab_analysis, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📊 지표 분석", "📚 내 서재", "🗑️ 휴지통"])
 
@@ -497,14 +513,12 @@ with tab_search:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    # [Changed] Title Display with Tooltip & Translation
-                    # Removed hardcoded color to support dark mode
-                    # Changed cursor from 'help' (?) to default (text selection) or 'progress' isn't suitable for static text
-                    # User requested to change '?' to 'Translating', implying they disliked the help cursor. 
-                    # Reverting to default cursor for text creates the most 'original' feel.
+                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
+                    display_title = highlight_text(paper['title']) if show_highlight else paper['title']
+                    
                     st.markdown(
-                        f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                         unsafe_allow_html=True
                     )
                     if show_translation:
@@ -682,11 +696,12 @@ with tab_analysis:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    # [Changed] Title Display
-                    # Removed hardcoded color and help cursor to match Search tab style
+                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
+                    display_title = highlight_text(paper['title']) if show_highlight else paper['title']
+                    
                     st.markdown(
-                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {paper['title']}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {display_title}</div>""", 
                         unsafe_allow_html=True
                     )
                     if show_translation:
@@ -819,10 +834,12 @@ with tab_inventory:
                             elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
                             else: status_emoji, status_text = "✅", "검증됨"
 
-                        # [Changed] Title Display
+                        # [Changed] Title Display with Tooltip & Translation & Highlight
                         translated_title = get_translated_title(paper['title'])
+                        display_title = highlight_text(paper['title']) if show_highlight else paper['title']
+                        
                         st.markdown(
-                            f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{paper['title']}</div>""", 
+                            f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                             unsafe_allow_html=True
                         )
                         if show_translation:
@@ -884,10 +901,12 @@ with tab_trash:
     for i, paper in enumerate(st.session_state.trash):
         with cols[i % 2]:
             with st.container(border=True):
-                # [Changed] Title Display
+                # [Changed] Title Display with Tooltip & Translation & Highlight
                 translated_title = get_translated_title(paper['title'])
+                display_title = highlight_text(paper['title']) if show_highlight else paper['title']
+                
                 st.markdown(
-                    f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px;">{paper['title']}</div>""", 
+                    f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px;">{display_title}</div>""", 
                     unsafe_allow_html=True
                 )
                 if show_translation:
