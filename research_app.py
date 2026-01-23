@@ -11,15 +11,19 @@ import pandas as pd
 import altair as alt
 from collections import Counter
 
-# --- 1. 설정 및 상수 ---
+# ==============================================================================
+# [SECTION 1] 설정 및 상수 정의
+# : 앱 전반에서 사용되는 고정값과 환경 설정을 관리합니다.
+# ==============================================================================
 
-# [New] 하이라이팅 및 평가에 사용할 핵심 키워드 상수화
+# 논문 평가 및 시각적 강조(하이라이팅)에 사용되는 핵심 키워드 리스트
 EVIDENCE_KEYWORDS = [
     'in vivo', 'in vitro', 'randomized', 'efficacy', 'mechanism', 'signaling', 
     'experiment', 'analysis', 'clinical', 'activity', 'synthesis', 'design', 
     'evaluation', 'characterization', 'properties', 'performance', 'application'
 ]
 
+# 사용자에게 부여되는 미션 리스트 (ID, 설명, 목표치, 보상)
 MISSIONS = [
     {"id": 1, "text": "인용 100회 이상 논문 1편 수집", "type": "citation", "target": 100, "count": 1, "reward": 150},
     {"id": 2, "text": "5인 이상 협업 연구 수집", "type": "team", "target": 5, "count": 1, "reward": 100},
@@ -27,13 +31,19 @@ MISSIONS = [
     {"id": 4, "text": "연구 점수 1500점 달성", "type": "score", "target": 1500, "count": 1500, "reward": 500},
 ]
 
+# 데이터 저장 경로 설정
 DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# --- 2. 데이터 관리 함수 ---
+
+# ==============================================================================
+# [SECTION 2] 데이터 관리 (Persistence Layer)
+# : 사용자 데이터를 JSON 파일로 로드하고 저장하는 함수들입니다.
+# ==============================================================================
 
 def load_user_data(user_id):
+    """사용자 ID에 해당하는 JSON 파일을 읽어옵니다. 없으면 기본값을 반환합니다."""
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     if os.path.exists(file_path):
         try:
@@ -50,6 +60,7 @@ def load_user_data(user_id):
     return {"score": 0, "inventory": [], "mission_id": 1, "trash": []}
 
 def save_user_data(user_id):
+    """현재 세션 상태(점수, 인벤토리 등)를 JSON 파일로 저장합니다."""
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     data = {
         "score": st.session_state.score,
@@ -63,40 +74,22 @@ def save_user_data(user_id):
     except Exception as e:
         st.error(f"데이터 저장 오류: {e}")
 
-# --- 3. 핵심 로직 함수 ---
+
+# ==============================================================================
+# [SECTION 3] 유틸리티 및 텍스트 처리 함수
+# : 날짜 계산, 번역, 텍스트 하이라이팅 등 보조 기능을 담당합니다.
+# ==============================================================================
 
 def get_current_year():
     return datetime.datetime.now().year
 
-def get_pubmed_count(query):
-    try:
-        # [Fixed] Clean URL string
-        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-        params = {
-            "db": "pubmed",
-            "term": query,
-            "retmode": "json",
-            "rettype": "count"
-        }
-        response = requests.get(url, params=params, timeout=5)
-        data = response.json()
-        count = int(data["esearchresult"]["count"])
-        return count
-    except Exception:
-        return None
-
-# [New] 번역 함수 추가
 @st.cache_data
 def get_translated_title(text):
+    """구글 번역 API(비공식)를 사용하여 영문 제목을 한글로 변환합니다."""
     try:
-        # [Fixed] Clean URL string
         url = "https://translate.googleapis.com/translate_a/single"
         params = {
-            "client": "gtx",
-            "sl": "auto",
-            "tl": "ko",
-            "dt": "t",
-            "q": text
+            "client": "gtx", "sl": "auto", "tl": "ko", "dt": "t", "q": text
         }
         response = requests.get(url, params=params, timeout=2)
         if response.status_code == 200:
@@ -105,67 +98,35 @@ def get_translated_title(text):
         pass
     return "번역 실패 (연결 확인 필요)"
 
-# [New] 키워드 하이라이팅 함수
 def highlight_text(text):
-    # 키워드들을 정규식 패턴으로 컴파일 (대소문자 무시)
+    """제목 내의 EVIDENCE_KEYWORDS를 찾아 HTML 형광펜 스타일을 적용합니다."""
     pattern = re.compile('|'.join(map(re.escape, EVIDENCE_KEYWORDS)), re.IGNORECASE)
-    
     def replace(match):
-        # 매칭된 단어에 스타일 적용 (연한 초록색 배경)
         return f"<span style='background-color: #d1fae5; color: #065f46; padding: 0 4px; border-radius: 4px; font-weight: bold;'>{match.group(0)}</span>"
-    
     return pattern.sub(replace, text)
 
-# [New] 서지 정보 내보내기 함수들
-def convert_to_bibtex(inventory_list):
-    bibtex_entries = []
-    for paper in inventory_list:
-        # Citation Key 생성 (첫 저자 성 + 연도)
-        first_author = paper['authors'][0].split()[-1] if paper['authors'] else "Unknown"
-        # 영문/숫자만 남기기
-        safe_key = re.sub(r'\W+', '', f"{first_author}{paper['year']}")
-        
-        authors_formatted = " and ".join(paper['authors'])
-        
-        entry = f"""@article{{{safe_key},
-  title = {{{paper['title']}}},
-  author = {{{authors_formatted}}},
-  journal = {{{paper['journal']}}},
-  year = {{{paper['year']}}},
-  doi = {{{paper['id']}}}
-}}"""
-        bibtex_entries.append(entry)
-    return "\n\n".join(bibtex_entries)
 
-def convert_to_csv(inventory_list):
-    # CSV Header
-    lines = ["DOI,Title,Authors,Journal,Year,Citations,MyScore"]
-    for paper in inventory_list:
-        # CSV Escape (따옴표 처리)
-        safe_title = paper['title'].replace('"', '""')
-        safe_authors = "; ".join(paper['authors']).replace('"', '""')
-        safe_journal = paper['journal'].replace('"', '""')
-        score = paper.get('final_score', paper.get('debiased_score', 0))
-        
-        line = f"\"{paper['id']}\",\"{safe_title}\",\"{safe_authors}\",\"{safe_journal}\",{paper['year']},{paper['citations']},{score}"
-        lines.append(line)
-    return "\n".join(lines)
+# ==============================================================================
+# [SECTION 4] 핵심 평가 알고리즘 (Scoring Logic)
+# : 논문의 가치를 계산하는 가장 중요한 로직입니다.
+# ==============================================================================
 
 def evaluate_paper(paper_data):
+    """논문 메타데이터를 기반으로 Impact(인기도)와 Potential(내실)을 계산합니다."""
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
     age = current_year - year
     title_lower = paper_data['title'].lower()
     citation_count = paper_data.get('citations', 0)
     
-    # 1. 키워드 (Evidence) - 상수로 변경
+    # 지표 1: 증거 키워드 포함 여부
     has_evidence = any(k in title_lower for k in EVIDENCE_KEYWORDS)
     
-    # 2. 연구팀 규모 (Team)
+    # 지표 2: 대규모 연구팀 여부 (5인 이상)
     author_count = paper_data.get('author_count', 1)
     is_big_team = author_count >= 5
 
-    # 3. 데이터 신뢰도 (Reliability)
+    # 지표 3: 데이터 신뢰도 (참고문헌 수 기반)
     ref_count = paper_data.get('ref_count') 
     integrity_status = "valid"
     risk_reason = ""
@@ -179,19 +140,14 @@ def evaluate_paper(paper_data):
             integrity_status = "suspected"
             risk_reason = "참고문헌 부족"
 
-    # Score Calculation
     score_breakdown = {
-        "Base": 30,
-        "Evidence": 0,
-        "Team": 0,
-        "Volume Penalty": 0,
-        "Integrity Penalty": 0
+        "Base": 30, "Evidence": 0, "Team": 0, "Volume Penalty": 0, "Integrity Penalty": 0
     }
 
-    # 1. Raw Score (인기도 중심) -> Impact
+    # 1. Impact (Raw Score): 인기도 기반 점수
     raw_score = min(99, int(5 + (math.log(citation_count + 1) * 15)))
 
-    # 2. Debiased Score (내실 중심) -> Potential
+    # 2. Potential (Debiased Score): 내실 기반 점수
     debiased_base = 30
     if has_evidence: 
         debiased_base += 30 
@@ -200,16 +156,15 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    # 문헌량 편향 제거
+    # 문헌량 편향 제거 (최신 연구일수록 패널티 완화)
     volume_discount = min(25, int(math.log(citation_count + 1) * 4))
-    
-    # 최신 연구 보정
     if age <= 2: volume_discount = int(volume_discount * 0.1)
     elif age <= 5: volume_discount = int(volume_discount * 0.5)
 
     score_breakdown["Volume Penalty"] = -volume_discount
     debiased_score = debiased_base - volume_discount
     
+    # 신뢰도 패널티 적용
     if integrity_status != "valid":
         penalty = debiased_score - 5
         debiased_score = 5
@@ -223,9 +178,10 @@ def evaluate_paper(paper_data):
 
     debiased_score = max(5, min(95, debiased_score))
 
-    # 3. Bias Penalty & Type
+    # 3. Bias Penalty: 인기도와 내실의 괴리
     bias_penalty = raw_score - debiased_score
     
+    # 논문 유형 분류
     potential_type = "normal"
     if debiased_score > 70 and bias_penalty < 0:
         potential_type = "amazing" 
@@ -234,13 +190,10 @@ def evaluate_paper(paper_data):
     elif integrity_status != "valid":
         potential_type = "bad"
 
-    ai_score = debiased_score
-
     return {
-        "raw_score": raw_score,
-        "debiased_score": debiased_score,
+        "raw_score": raw_score, # Impact
+        "debiased_score": debiased_score, # Potential
         "bias_penalty": bias_penalty,
-        "ai_score": ai_score,
         "potential_type": potential_type,
         "risk_reason": risk_reason,
         "has_evidence": has_evidence,
@@ -251,12 +204,29 @@ def evaluate_paper(paper_data):
         "citation_count": citation_count
     }
 
+
+# ==============================================================================
+# [SECTION 5] 외부 API 통신
+# : Crossref 및 PubMed API와 통신하여 데이터를 가져옵니다.
+# ==============================================================================
+
+def get_pubmed_count(query):
+    """PubMed에서 해당 키워드의 전체 문헌 수를 조회하여 주제의 과열 정도를 파악합니다."""
+    try:
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        params = {"db": "pubmed", "term": query, "retmode": "json", "rettype": "count"}
+        response = requests.get(url, params=params, timeout=5)
+        data = response.json()
+        return int(data["esearchresult"]["count"])
+    except Exception:
+        return None
+
 def search_crossref_api(query):
+    """Crossref API를 통해 논문 메타데이터를 검색하고 평가 로직을 적용합니다."""
     is_exact_mode = query.startswith('"') and query.endswith('"')
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # [Fixed] Clean URL string
         url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
@@ -265,66 +235,65 @@ def search_crossref_api(query):
         return [], {}, False
 
     if not data or not isinstance(data, dict): return [], {}, False
-    message = data.get('message')
-    if not message or not isinstance(message, dict): return [], {}, False
-    items = message.get('items')
+    items = data.get('message', {}).get('items', [])
     if not items: return [], {}, False
 
     valid_papers = []
     current_year = get_current_year()
-
     pubmed_count = get_pubmed_count(clean_query)
     
     citations_list = []
     years_list = []
 
     for idx, item in enumerate(items):
-        if not item.get('DOI'): continue
-        if not item.get('title'): continue
+        if not item.get('DOI') or not item.get('title'): continue
         
+        # 제목 전처리 및 필터링
         title_str = item['title'][0].lower()
-        invalid_titles = ["announcement", "editorial", "issue info", "table of contents", "front matter", "back matter", "author index", "subject index", "correction", "erratum", "publisher's note", "conference info", "trial number", "trial registration", "clinicaltrials.gov", "identifier", "&na;", "unknown", "calendar", "masthead", "abstracts", "session", "meeting", "symposium", "workshop", "chinese journal", "test", "protocol", "data descriptor", "dataset"]
+        invalid_titles = ["announcement", "editorial", "issue info", "correction", "erratum", "author index", "front matter", "back matter"]
         if any(inv in title_str for inv in invalid_titles): continue
         
         cit = item.get('is-referenced-by-count', 0)
         citations_list.append(cit)
         
+        # 연도 추출
         y = None
         if item.get('published') and item['published'].get('date-parts'): y = item['published']['date-parts'][0][0]
         elif item.get('created') and item['created'].get('date-parts'): y = item['created']['date-parts'][0][0]
         if y: years_list.append(y)
 
+        # 저자 정보 정제
         if not item.get('author'): continue
-        authors_raw = item['author']
         valid_authors = []
-        for a in authors_raw:
+        for a in item['author']:
             given = a.get('given', '').strip()
             family = a.get('family', '').strip()
             full = f"{given} {family}".strip()
-            if full and "&na;" not in full.lower() and "anonymous" not in full.lower():
+            if full and "anonymous" not in full.lower():
                 valid_authors.append(full)
         if not valid_authors: continue
 
-        journal = item.get('container-title', ["Unknown Journal"])[0]
-        ref_count = item.get('reference-count')
         pub_year = y if y else current_year - 5
         
+        # 평가 실행
         paper_data_for_eval = {
             'title': item['title'][0], 'year': pub_year, 'citations': cit, 
-            'journal': journal, 'author_count': len(valid_authors), 'ref_count': ref_count
+            'journal': item.get('container-title', ["Unknown"])[0], 
+            'author_count': len(valid_authors), 
+            'ref_count': item.get('reference-count')
         }
         eval_result = evaluate_paper(paper_data_for_eval)
 
+        # 결과 객체 생성
         paper_obj = {
             'id': item['DOI'],
             'title': item['title'][0],
             'authors': valid_authors[:3], 
             'author_full_count': len(valid_authors),
-            'journal': journal,
+            'journal': item.get('container-title', ["Unknown"])[0],
             'year': pub_year,
             'citations': cit,
-            'ref_count': ref_count if ref_count is not None else 0,
-            # [Fixed] Clean URL string
+            'ref_count': item.get('reference-count') if item.get('reference-count') else 0,
             'url': f"https://doi.org/{item['DOI']}",
             **eval_result,
             'is_reviewed': False,
@@ -332,15 +301,12 @@ def search_crossref_api(query):
         }
         valid_papers.append(paper_obj)
     
+    # 통계 정보 생성
     avg_citations = int(sum(citations_list) / len(citations_list)) if citations_list else 0
+    period_str = "Unknown"
     if years_list:
-        year_counts = Counter(years_list)
-        most_common_year = year_counts.most_common(1)[0][0]
         min_y, max_y = min(years_list), max(years_list)
-        if max_y - min_y > 10: period_str = f"{most_common_year-2}~{most_common_year+2}"
-        else: period_str = f"{min_y}~{max_y}"
-    else:
-        period_str = "Unknown"
+        period_str = f"{min_y}~{max_y}"
 
     bias_summary = {
         "pubmed_count": pubmed_count if pubmed_count is not None else "집계 불가",
@@ -349,15 +315,55 @@ def search_crossref_api(query):
         "is_high_exposure": (pubmed_count > 5000 if pubmed_count else False) or avg_citations > 100
     }
 
+    # 기본 정렬: Potential(내실) 순
     if not is_exact_mode:
         valid_papers.sort(key=lambda x: x['debiased_score'], reverse=True)
             
     return valid_papers, bias_summary, is_exact_mode
 
-# --- 3. Streamlit UI ---
+
+# ==============================================================================
+# [SECTION 6] 내보내기 유틸리티 (Export)
+# : BibTeX 및 CSV 변환 함수입니다.
+# ==============================================================================
+
+def convert_to_bibtex(inventory_list):
+    bibtex_entries = []
+    for paper in inventory_list:
+        first_author = paper['authors'][0].split()[-1] if paper['authors'] else "Unknown"
+        safe_key = re.sub(r'\W+', '', f"{first_author}{paper['year']}")
+        authors_formatted = " and ".join(paper['authors'])
+        
+        entry = f"""@article{{{safe_key},
+  title = {{{paper['title']}}},
+  author = {{{authors_formatted}}},
+  journal = {{{paper['journal']}}},
+  year = {{{paper['year']}}},
+  doi = {{{paper['id']}}}
+}}"""
+        bibtex_entries.append(entry)
+    return "\n\n".join(bibtex_entries)
+
+def convert_to_csv(inventory_list):
+    lines = ["DOI,Title,Authors,Journal,Year,Citations,MyScore"]
+    for paper in inventory_list:
+        safe_title = paper['title'].replace('"', '""')
+        safe_authors = "; ".join(paper['authors']).replace('"', '""')
+        safe_journal = paper['journal'].replace('"', '""')
+        score = paper.get('final_score', paper.get('debiased_score', 0))
+        line = f"\"{paper['id']}\",\"{safe_title}\",\"{safe_authors}\",\"{safe_journal}\",{paper['year']},{paper['citations']},{score}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+# ==============================================================================
+# [SECTION 7] Streamlit UI 구성 - 메인 및 사이드바
+# : 앱의 시각적 요소를 구성하고 사용자 상호작용을 처리합니다.
+# ==============================================================================
 
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
+# 세션 상태 초기화
 if 'user_id' not in st.session_state: st.session_state['user_id'] = None
 if 'score' not in st.session_state: st.session_state['score'] = 0
 if 'inventory' not in st.session_state: st.session_state['inventory'] = []
@@ -380,20 +386,25 @@ def get_level_info(score):
     return level, progress, next_milestone
 
 def check_mission(paper, action):
+    """사용자가 미션 조건을 달성했는지 확인하고 보상을 지급합니다."""
     current_m = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
     if not current_m: return
     completed = False
     m_type = current_m['type']
+    
     if m_type == "citation" and action == "collect" and paper['citations'] >= 100: completed = True
     elif m_type == "team" and action == "collect" and paper['is_big_team']: completed = True
     elif m_type == "score" and st.session_state.score >= current_m['target']: completed = True
+    
     if completed:
         st.session_state.score += current_m['reward']
         st.session_state.mission_id += 1
         st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
         if st.session_state.get("user_id"): save_user_data(st.session_state.user_id)
 
-# Login Screen
+# ------------------------------------------------------------------------------
+# [UI Part 1] 로그인 화면
+# ------------------------------------------------------------------------------
 if not st.session_state.get("user_id"):
     st.title("🎓 AI 기반 논문 추천 시스템")
     st.caption("캡스톤 디자인 _ AI:D")
@@ -416,7 +427,9 @@ if not st.session_state.get("user_id"):
             else: st.warning("이름을 입력해주세요.")
     st.stop() 
 
-# Sidebar
+# ------------------------------------------------------------------------------
+# [UI Part 2] 사이드바 (정보 및 가이드)
+# ------------------------------------------------------------------------------
 with st.sidebar:
     st.title("🎓 AI 기반 논문 추천 시스템")
     st.caption("캡스톤 디자인 _ AI:D")
@@ -426,6 +439,8 @@ with st.sidebar:
         st.session_state.user_id = None
         st.rerun()
     st.divider()
+    
+    # 레벨 정보
     current_level, progress, next_score = get_level_info(st.session_state.score)
     st.metric("연구 레벨", f"Lv. {current_level}")
     st.write(f"현재 점수: {st.session_state.score} / {next_score}")
@@ -433,6 +448,7 @@ with st.sidebar:
     st.metric("보유 논문", f"{len(st.session_state.inventory)}편")
     st.divider()
     
+    # 가이드
     st.markdown("#### 🔍 평가 지표 가이드")
     st.markdown("""
     **1. Impact (영향력)**
@@ -477,14 +493,19 @@ with st.sidebar:
     """)
     
     st.divider()
-    # [New] Mobile Support Option
+    # 옵션 설정
     show_translation = st.checkbox("한글 번역 항상 보기 (모바일용)", value=False)
-    # [New] Highlight Option
     show_highlight = st.checkbox("키워드 하이라이팅 (Visual Evidence)", value=True, help="점수에 긍정적 영향을 준 핵심 단어를 강조합니다.")
 
+
+# ==============================================================================
+# [SECTION 8] 메인 기능 탭 구성
+# ==============================================================================
 tab_search, tab_analysis, tab_inventory, tab_trash = st.tabs(["🔍 논문 검색", "📊 지표 분석", "📚 내 서재", "🗑️ 휴지통"])
 
-# --- 탭 1: 논문 검색 ---
+# ------------------------------------------------------------------------------
+# [Tab 1] 논문 검색
+# ------------------------------------------------------------------------------
 with tab_search:
     col1, col2 = st.columns([4, 1])
     with col1: query = st.text_input("키워드 입력", placeholder='예: "Immunotherapy" (따옴표는 정확도순)')
@@ -505,7 +526,7 @@ with tab_search:
     if st.session_state.search_results:
         summary = st.session_state.bias_summary
         
-        # [Modified] Using expander instead of container
+        # 1. 편향 요약
         with st.expander("🔍 편향 요약", expanded=True):
             bc1, bc2, bc3 = st.columns(3)
             pub_cnt = summary['pubmed_count']
@@ -519,9 +540,8 @@ with tab_search:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
 
-        # [Modified] Scatter Plot (Bubble vs Hidden Gem) with Quadrants - Using expander
+        # 2. 거품 vs 원석 산점도
         with st.expander("📈 거품 vs 원석 분포도", expanded=True):
-            # Prepare data for Altair
             chart_data = []
             for p in st.session_state.search_results:
                 chart_data.append({
@@ -533,44 +553,34 @@ with tab_search:
             
             if chart_data:
                 df_chart = pd.DataFrame(chart_data)
-                
-                # Type Color Mapping
-                # Domain: ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
                 domain = ["amazing", "bubble", "bad", "normal", "uncertain", "suspected", "verified_user"]
                 range_ = ["#10b981", "#ef4444", "#6b7280", "#3b82f6", "#f59e0b", "#f59e0b", "#8b5cf6"]
                 
-                # Base chart with fixed domain [0, 100] for quadrants
                 base = alt.Chart(df_chart).encode(
                     x=alt.X('Impact', title='Impact (인기도/영향력)', scale=alt.Scale(domain=[0, 100])),
                     y=alt.Y('Potential', title='Potential (잠재력/내실)', scale=alt.Scale(domain=[0, 100]))
                 )
-
-                # 1. Scatter Points
                 scatter = base.mark_circle(size=60).encode(
                     color=alt.Color('Type', scale=alt.Scale(domain=domain, range=range_), legend=None),
                     tooltip=['Title', 'Impact', 'Potential', 'Type']
                 )
-
-                # 2. Quadrant Lines (Threshold: 50)
+                # 4분면 기준선
                 h_rule = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(y='y')
                 v_rule = alt.Chart(pd.DataFrame({'x': [50]})).mark_rule(strokeDash=[5, 5], color='gray', opacity=0.5).encode(x='x')
-
-                # 3. Area Labels
+                # 텍스트 라벨
                 text_df = pd.DataFrame({
-                    'x': [25, 85], 
-                    'y': [90, 10], 
+                    'x': [25, 85], 'y': [90, 10], 
                     'label': ['💎 Hidden Gem (원석)', '🫧 Bubble (거품)']
                 })
                 text_layer = alt.Chart(text_df).mark_text(
                     align='center', baseline='middle', fontSize=13, fontWeight='bold', color='gray', opacity=0.8
                 ).encode(x='x', y='y', text='label')
                 
-                # Combine Layers
                 final_chart = (scatter + h_rule + v_rule + text_layer).interactive()
-                
                 st.altair_chart(final_chart, use_container_width=True)
                 st.info("💡 **좌측 상단(High Potential, Low Impact)** 영역에 위치한 논문이 바로 숨겨진 원석(Hidden Gem)입니다!")
 
+        # 3. 정렬 및 목록 표시
         st.markdown("""<div style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">🔃 정렬 기준 선택</div>""", unsafe_allow_html=True)
         sort_col, _ = st.columns([2, 1])
         with sort_col:
@@ -591,6 +601,7 @@ with tab_search:
         elif sort_opt == "정확도":
             st.session_state.search_results.sort(key=lambda x: x['original_rank'])
 
+        # 페이지네이션
         items_per_page = 50
         total_items = len(st.session_state.search_results)
         total_pages = max(1, math.ceil(total_items / items_per_page))
@@ -606,10 +617,8 @@ with tab_search:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
                     display_title = highlight_text(paper['title']) if show_highlight else paper['title']
-                    
                     st.markdown(
                         f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                         unsafe_allow_html=True
@@ -623,10 +632,10 @@ with tab_search:
                     if paper['integrity_status'] != "valid": tags.append("⚠️ 데이터 부족")
                     if paper['potential_type'] == "amazing": tags.append("💎 Hidden Gem")
                     st.write(" ".join([f"`{t}`" for t in tags]))
+                    
                     auth_display = ", ".join(paper['authors'])
                     if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
-                    
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
                 with c2:
@@ -647,6 +656,7 @@ with tab_search:
                             st.rerun()
         
         st.divider()
+        # 페이지 이동 버튼
         _, nav_col, _ = st.columns([1, 5, 1])
         with nav_col:
             if total_pages <= 5: display_pages = range(1, total_pages + 1)
@@ -660,7 +670,6 @@ with tab_search:
                 if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
                     st.session_state.search_page -= 1
                     st.rerun()
-            
             for idx, p_num in enumerate(display_pages):
                 if idx < 5:
                     with pg_cols[idx + 1]:
@@ -668,19 +677,19 @@ with tab_search:
                         if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
                             st.session_state.search_page = p_num
                             st.rerun()
-            
             with pg_cols[6]:
                 if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
                     st.session_state.search_page += 1
                     st.rerun()
             with pg_cols[8]:
-                 # [Fixed] Duplicate key error by renaming key from 'nav_an_input' to 'nav_search_input'
                  new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_search_input")
                  if new_page != current_page:
                     st.session_state.search_page = new_page
                     st.rerun()
 
-# --- [New] Analysis Tab (페이지네이션 적용) ---
+# ------------------------------------------------------------------------------
+# [Tab 2] 지표 분석
+# ------------------------------------------------------------------------------
 with tab_analysis:
     if not st.session_state.search_results:
         st.info("먼저 '논문 검색' 탭에서 검색을 수행해주세요.")
@@ -692,30 +701,25 @@ with tab_analysis:
             st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
             st.session_state.current_preset = "⚖️ 밸런스"
         
-        # [Fix] Initialize analysis page
         if 'analysis_page' not in st.session_state:
             st.session_state.analysis_page = 1
 
         col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-        
         with col_p1:
             if st.button("⚖️ 밸런스", use_container_width=True, help="모든 지표를 골고루 반영합니다."):
                 st.session_state.analysis_weights = {"evidence": 1.0, "recency": 1.0, "team": 1.0, "scarcity": 1.0}
                 st.session_state.current_preset = "⚖️ 밸런스"
                 st.rerun()
-
         with col_p2:
             if st.button("💎 숨겨진 원석", use_container_width=True, help="인용은 적지만 증거가 확실한 논문을 찾습니다."):
                 st.session_state.analysis_weights = {"evidence": 2.0, "recency": 1.0, "team": 1.0, "scarcity": 3.0}
                 st.session_state.current_preset = "💎 숨겨진 원석"
                 st.rerun()
-                
         with col_p3:
             if st.button("🚀 최신 트렌드", use_container_width=True, help="최신성과 실험적 근거를 최우선으로 봅니다."):
                 st.session_state.analysis_weights = {"evidence": 2.0, "recency": 3.0, "team": 0.5, "scarcity": 1.0}
                 st.session_state.current_preset = "🚀 최신 트렌드"
                 st.rerun()
-
         with col_p4:
             if st.button("👑 대규모", use_container_width=True, help="대규모 연구팀을 선호합니다."):
                 st.session_state.analysis_weights = {"evidence": 1.0, "recency": 0.5, "team": 3.0, "scarcity": 0.5}
@@ -724,16 +728,13 @@ with tab_analysis:
 
         st.info(f"현재 적용된 분석 모드: **{st.session_state.current_preset}**")
 
-        # --- [추가된 부분] 가중치 설명 문구 ---
         st.markdown("""
         <small>💡 **가중치 설정 가이드**: 슬라이더의 숫자는 해당 지표의 중요도(배수)를 의미합니다.
         <br>• **1.0**: 기본 반영 | • **2.0**: 2배 더 중요하게 반영 | • **0.0**: 점수 산정에서 제외</small>
         """, unsafe_allow_html=True)
-        # ------------------------------------
 
         w = st.session_state.analysis_weights
         
-        # [수정] 슬라이더: 한국어, 차트: 영어(한국어)
         with st.container(border=True):
             col_w1, col_w2 = st.columns(2)
             with col_w1: w["evidence"] = st.slider("증거", 0.0, 3.0, w["evidence"])
@@ -750,7 +751,6 @@ with tab_analysis:
         analyzed_papers = []
         for paper in st.session_state.search_results:
             details = paper.get('score_breakdown', {})
-            # Base 제거됨
             ev_score = details.get('Evidence', 0)
             team_score = details.get('Team', 0)
             vol_penalty = details.get('Volume Penalty', 0)
@@ -771,12 +771,11 @@ with tab_analysis:
             
         analyzed_papers.sort(key=lambda x: x['custom_score'], reverse=True)
         
-        # [New] Analysis Tab Pagination
+        # 분석 탭 페이지네이션
         items_per_page = 50
         total_items_an = len(analyzed_papers)
         total_pages_an = max(1, math.ceil(total_items_an / items_per_page))
         current_page_an = st.session_state.analysis_page
-        
         start_idx_an = (current_page_an - 1) * items_per_page
         end_idx_an = start_idx_an + items_per_page
         page_items_an = analyzed_papers[start_idx_an:end_idx_an]
@@ -785,15 +784,12 @@ with tab_analysis:
         st.caption(f"재평가 결과 ({total_items_an}건) | 페이지: {current_page_an}/{total_pages_an}")
         
         for i, paper in enumerate(page_items_an):
-            # Key collision prevention
             unique_an_key = f"an_{start_idx_an + i}"
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
                     display_title = highlight_text(paper['title']) if show_highlight else paper['title']
-                    
                     st.markdown(
                         f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {display_title}</div>""", 
                         unsafe_allow_html=True
@@ -801,7 +797,6 @@ with tab_analysis:
                     if show_translation:
                         st.caption(f"🇰🇷 {translated_title}")
                     
-                    # [New] 기본 정보 표시 추가
                     tags = []
                     if paper['has_evidence']: tags.append("🔬 Evidence")
                     if paper['is_big_team']: tags.append("👥 Big Team")
@@ -816,7 +811,6 @@ with tab_analysis:
 
                     with st.expander("점수 상세 구성 보기"):
                         details = paper.get('score_breakdown', {})
-                        # [Modified] Chart Keys: English (Korean)
                         chart_data = {
                             "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
                             "Team (규모)": details.get('Team', 0) * w_team,
@@ -837,7 +831,6 @@ with tab_analysis:
                             save_user_data(st.session_state.user_id)
                             st.rerun()
 
-        # [New] Analysis Pagination Controller
         st.divider()
         _, nav_col_an, _ = st.columns([1, 5, 1])
         with nav_col_an:
@@ -853,7 +846,6 @@ with tab_analysis:
                 if st.button("◀", key="nav_an_prev", disabled=current_page_an==1, use_container_width=True):
                     st.session_state.analysis_page -= 1
                     st.rerun()
-            
             for idx, p_num in enumerate(display_pages_an):
                 if idx < 5:
                     with pg_cols_an[idx + 1]:
@@ -861,7 +853,6 @@ with tab_analysis:
                         if st.button(f"{p_num}", key=f"nav_an_p_{p_num}", type=b_type, use_container_width=True):
                             st.session_state.analysis_page = p_num
                             st.rerun()
-            
             with pg_cols_an[6]:
                 if st.button("▶", key="nav_an_next", disabled=current_page_an==total_pages_an, use_container_width=True):
                     st.session_state.analysis_page += 1
@@ -872,8 +863,10 @@ with tab_analysis:
                     st.session_state.analysis_page = new_page_an
                     st.rerun()
 
+# ------------------------------------------------------------------------------
+# [Tab 3] 내 서재 (Inventory)
+# ------------------------------------------------------------------------------
 with tab_inventory:
-    # [New] Layout: Main List (Left) | Value Guide (Right)
     inv_main, inv_info = st.columns([3, 1])
     
     with inv_info:
@@ -882,61 +875,41 @@ with tab_inventory:
             st.markdown("""
             **1. 심층 검증 (성공)**
             > **Potential + 50% 보너스**
-            
             <small>좋은 원석(Potential)을 발굴할수록, 연구자의 검증을 통해 그 가치가 1.5배로 증폭됩니다.</small>
-            """, unsafe_allow_html=True)
-            
+            """)
             st.markdown("---")
-            
             st.markdown("""
             **2. 강제 승인 (리스크)**
             > **Potential + 10점**
-            
             <small>데이터가 부족한(Risk) 논문을 억지로 승인하면, 보너스가 대폭 축소됩니다.</small>
-            """, unsafe_allow_html=True)
+            """)
 
     with inv_main:
         if not st.session_state.inventory: 
             st.info("수집된 논문이 없습니다.")
         else:
-            # [New] Export UI - Added based on user request
             with st.expander("📂 서지 정보 내보내기 (BibTeX / CSV)"):
                 e_col1, e_col2 = st.columns(2)
                 with e_col1:
                     bib_data = convert_to_bibtex(st.session_state.inventory)
-                    st.download_button(
-                        label="BibTeX 다운로드 (.bib)",
-                        data=bib_data,
-                        file_name="my_research_inventory.bib",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
+                    st.download_button("BibTeX 다운로드 (.bib)", bib_data, "my_research_inventory.bib", "text/plain", use_container_width=True)
                 with e_col2:
                     csv_data = convert_to_csv(st.session_state.inventory)
-                    st.download_button(
-                        label="CSV 다운로드 (.csv)",
-                        data=csv_data,
-                        file_name="my_research_inventory.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+                    st.download_button("CSV 다운로드 (.csv)", csv_data, "my_research_inventory.csv", "text/csv", use_container_width=True)
             
-            # [New] BibTeX Usage Guide (Separate Expander)
             with st.expander("📖 Overleaf로 BibTeX 쓰는 초간단 루트 (가이드 보기)"):
                 st.markdown("🔗 [Overleaf 로그인 바로가기](https://www.overleaf.com/login)")
-                
                 st.markdown(r"""
                 BibTeX에서 .bib 파일은 참고문헌이 “출력된 결과물”이 아니라, 논문 정보가 정리되어 있는 데이터 파일에 해당한다. 그래서 .bib 파일을 그냥 열어서는 참고문헌 목록이 보이지 않고, 반드시 LaTeX 문서가 이 파일을 불러와 PDF로 출력해 주어야 한다. Overleaf를 사용하는 이유는 이 과정을 가장 간단하게 처리해 주기 때문이다.
-                
+
                 Overleaf에서는 먼저 새 프로젝트를 만들고, 기본으로 생성된 main.tex 파일과 함께 가지고 있는 .bib 파일을 같은 프로젝트 안에 업로드한다. 그다음 main.tex에서 본문을 작성하고, 문서의 끝부분, 즉 `\end{document}` 바로 위에 BibTeX 관련 코드를 추가한다. 이때 `\bibliography{references}`는 “references.bib라는 파일을 참고문헌 데이터로 사용하겠다”는 의미이고, 확장자 .bib는 쓰지 않는다. 만약 .bib 파일 안에 들어 있는 모든 논문을 한꺼번에 참고문헌으로 출력하고 싶다면 `\nocite{*}`를 함께 넣어 주면 된다.
-                
+
                 여기서 `\bibliographystyle{unsrt}`는 참고문헌의 출력 형식과 정렬 방식을 지정하는 역할을 한다. unsrt는 “정렬하지 않는다(unsorted)”는 뜻으로, 본문에서 인용된 순서 그대로 참고문헌을 나열하라는 의미다. 즉, 서론에서 처음 인용한 논문이 1번, 그다음에 인용한 논문이 2번이 되는 방식이다. 이 방식은 자연과학, 의생명 분야 논문이나 캡스톤 보고서에서 가장 흔히 쓰이며, 독자가 본문 흐름을 따라가면서 참고문헌을 확인하기 쉽다는 장점이 있다.
-                
+
                 이렇게 .bib 파일을 업로드하고, 문서 맨 아래에 `\bibliographystyle{unsrt}`와 `\bibliography{bib 파일 이름}`를 추가한 뒤 Recompile 버튼을 누르면, Overleaf가 LaTeX와 BibTeX를 자동으로 실행해 주고 PDF에 참고문헌 목록을 만들어 준다. 사용자는 컴파일 순서를 신경 쓸 필요가 없고, 파일 이름만 정확히 맞추면 된다.
-                
+
                 정리하면, Overleaf에서 BibTeX를 쓰는 핵심은 “.bib 파일은 데이터, .tex 파일은 이를 출력하는 도구”라는 점을 이해하고, 문서 끝에 참고문헌 스타일과 데이터 파일을 지정해 주는 것이다. `\bibliographystyle{unsrt}`는 그중에서도 “참고문헌을 어떤 규칙으로 보여줄지”를 정하는 중요한 한 줄이라고 보면 된다.
                 """)
-                
                 st.code(r"""
 \documentclass{article}
 \usepackage{graphicx} % Required for inserting images
@@ -946,39 +919,31 @@ with tab_inventory:
 \begin{document}
 \maketitle
 \section{Introduction}
-  
+
 #아래 3줄 복사 붙여넣기
 ======================
 \nocite{*}
 \bibliographystyle{unsrt}
 \bibliography{bib파일 이름}
 ======================
-  
+
 \end{document}
 """, language="latex")
-            
-            st.divider()
 
-            # [New] 정렬 방식 선택
+            st.divider()
             col_sort, _ = st.columns([2, 5])
             with col_sort:
                 inv_sort_opt = st.selectbox("정렬 방식", ["저장한 순서", "가치 높은 순서"])
             
-            # 원본 데이터 참조
             inv_list = st.session_state.inventory
-            
-            # 정렬 로직 (원본 보존을 위해 리스트 복사본 사용이 아닌, 객체 참조 정렬)
             if inv_sort_opt == "가치 높은 순서":
-                # final_score가 있으면 그것을, 없으면 debiased_score를 기준으로 정렬
                 display_items = sorted(inv_list, key=lambda x: x.get('final_score', x.get('debiased_score', 0)), reverse=True)
             else:
                 display_items = inv_list
 
             cols = st.columns(2)
             for i, paper in enumerate(display_items):
-                # Key collision prevention using Paper ID
                 p_id = paper['id']
-                
                 with cols[i % 2]:
                     with st.container(border=True):
                         status_emoji = "❓"; status_text = "미검증"
@@ -988,17 +953,13 @@ with tab_inventory:
                             elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
                             else: status_emoji, status_text = "✅", "검증됨"
 
-                        # [Changed] Title Display with Tooltip & Translation & Highlight
                         translated_title = get_translated_title(paper['title'])
                         display_title = highlight_text(paper['title']) if show_highlight else paper['title']
-                        
                         st.markdown(
                             f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                             unsafe_allow_html=True
                         )
-                        if show_translation:
-                            st.caption(f"🇰🇷 {translated_title}")
-                        
+                        if show_translation: st.caption(f"🇰🇷 {translated_title}")
                         st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
                         
                         c_btn1, c_btn2 = st.columns([2, 1])
@@ -1006,7 +967,6 @@ with tab_inventory:
                             if not paper['is_reviewed']:
                                 if paper['integrity_status'] == "valid":
                                     if st.button("🔬 심층 검증", key=f"rev_{p_id}", type="primary", use_container_width=True):
-                                        # 객체 직접 수정 (Reference Update)
                                         paper['is_reviewed'] = True
                                         bonus = int(paper['debiased_score'] * 0.5)
                                         st.session_state.score += bonus
@@ -1028,21 +988,20 @@ with tab_inventory:
                                         st.rerun()
                             else:
                                 st.success(f"가치: {paper.get('final_score', 0)}점")
-
                         with c_btn2:
                             if st.button("삭제", key=f"del_{p_id}", use_container_width=True):
                                 deduction = paper.get('final_score', paper.get('debiased_score', 0))
                                 st.session_state.score = max(0, st.session_state.score - deduction)
-                                
-                                # ID 기반 삭제 (정렬 상태와 무관하게 안전하게 삭제)
                                 st.session_state.inventory = [p for p in st.session_state.inventory if p['id'] != p_id]
                                 st.session_state.trash.append(paper)
-                                
                                 st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
                                 save_user_data(st.session_state.user_id) 
                                 st.rerun()
                         st.markdown(f"[📄 원문 보기]({paper['url']})")
 
+# ------------------------------------------------------------------------------
+# [Tab 4] 휴지통 (Trash)
+# ------------------------------------------------------------------------------
 with tab_trash:
     if not st.session_state.trash: st.info("휴지통이 비어있습니다.")
     if st.session_state.trash:
@@ -1055,18 +1014,15 @@ with tab_trash:
     for i, paper in enumerate(st.session_state.trash):
         with cols[i % 2]:
             with st.container(border=True):
-                # [Changed] Title Display with Tooltip & Translation & Highlight
                 translated_title = get_translated_title(paper['title'])
                 display_title = highlight_text(paper['title']) if show_highlight else paper['title']
-                
                 st.markdown(
                     f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; color:gray; margin-bottom:5px;">{display_title}</div>""", 
                     unsafe_allow_html=True
                 )
-                if show_translation:
-                    st.caption(f"🇰🇷 {translated_title}")
-                
+                if show_translation: st.caption(f"🇰🇷 {translated_title}")
                 st.caption(f"삭제됨 | {paper['journal']}")
+                
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("복구", key=f"rest_{i}", use_container_width=True):
