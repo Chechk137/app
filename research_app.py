@@ -876,13 +876,13 @@ with tab_inventory:
             **1. 심층 검증 (성공)**
             > **Potential + 50% 보너스**
             <small>좋은 원석(Potential)을 발굴할수록, 연구자의 검증을 통해 그 가치가 1.5배로 증폭됩니다.</small>
-            """)
+            """, unsafe_allow_html=True)
             st.markdown("---")
             st.markdown("""
             **2. 강제 승인 (리스크)**
             > **Potential + 10점**
             <small>데이터가 부족한(Risk) 논문을 억지로 승인하면, 보너스가 대폭 축소됩니다.</small>
-            """)
+            """, unsafe_allow_html=True)
 
     with inv_main:
         if not st.session_state.inventory: 
