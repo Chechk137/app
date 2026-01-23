@@ -23,14 +23,6 @@ EVIDENCE_KEYWORDS = [
     'evaluation', 'characterization', 'properties', 'performance', 'application'
 ]
 
-# 사용자에게 부여되는 미션 리스트 (ID, 설명, 목표치, 보상)
-MISSIONS = [
-    {"id": 1, "text": "인용 100회 이상 논문 1편 수집", "type": "citation", "target": 100, "count": 1, "reward": 150},
-    {"id": 2, "text": "5인 이상 협업 연구 수집", "type": "team", "target": 5, "count": 1, "reward": 100},
-    {"id": 3, "text": "함정 논문 피하기 (검증 실패 0회)", "type": "avoid_trap", "target": "trap", "count": 0, "reward": 0},
-    {"id": 4, "text": "연구 점수 1500점 달성", "type": "score", "target": 1500, "count": 1500, "reward": 500},
-]
-
 # 데이터 저장 경로 설정
 DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
@@ -52,12 +44,11 @@ def load_user_data(user_id):
                 return {
                     "score": data.get("score", 0),
                     "inventory": data.get("inventory", []),
-                    "mission_id": data.get("mission_id", 1),
                     "trash": data.get("trash", [])
                 }
         except Exception as e:
             st.error(f"데이터 로드 오류: {e}")
-    return {"score": 0, "inventory": [], "mission_id": 1, "trash": []}
+    return {"score": 0, "inventory": [], "trash": []}
 
 def save_user_data(user_id):
     """현재 세션 상태(점수, 인벤토리 등)를 JSON 파일로 저장합니다."""
@@ -65,7 +56,6 @@ def save_user_data(user_id):
     data = {
         "score": st.session_state.score,
         "inventory": st.session_state.inventory,
-        "mission_id": st.session_state.mission_id,
         "trash": st.session_state.trash
     }
     try:
@@ -368,7 +358,6 @@ if 'user_id' not in st.session_state: st.session_state['user_id'] = None
 if 'score' not in st.session_state: st.session_state['score'] = 0
 if 'inventory' not in st.session_state: st.session_state['inventory'] = []
 if 'trash' not in st.session_state: st.session_state['trash'] = []
-if 'mission_id' not in st.session_state: st.session_state['mission_id'] = 1
 if 'search_results' not in st.session_state: st.session_state['search_results'] = []
 if 'bias_summary' not in st.session_state: st.session_state['bias_summary'] = {}
 if 'search_page' not in st.session_state: st.session_state['search_page'] = 1
@@ -384,23 +373,6 @@ def get_level_info(score):
     progress = (score % level_threshold) / level_threshold
     next_milestone = (level) * level_threshold
     return level, progress, next_milestone
-
-def check_mission(paper, action):
-    """사용자가 미션 조건을 달성했는지 확인하고 보상을 지급합니다."""
-    current_m = next((m for m in MISSIONS if m['id'] == st.session_state.mission_id), None)
-    if not current_m: return
-    completed = False
-    m_type = current_m['type']
-    
-    if m_type == "citation" and action == "collect" and paper['citations'] >= 100: completed = True
-    elif m_type == "team" and action == "collect" and paper['is_big_team']: completed = True
-    elif m_type == "score" and st.session_state.score >= current_m['target']: completed = True
-    
-    if completed:
-        st.session_state.score += current_m['reward']
-        st.session_state.mission_id += 1
-        st.toast(f"🎉 미션 완료! 보상 +{current_m['reward']}점", icon="🎁")
-        if st.session_state.get("user_id"): save_user_data(st.session_state.user_id)
 
 # ------------------------------------------------------------------------------
 # [UI Part 1] 로그인 화면
@@ -421,7 +393,6 @@ if not st.session_state.get("user_id"):
                 saved_data = load_user_data(user_input)
                 st.session_state.score = saved_data["score"]
                 st.session_state.inventory = saved_data["inventory"]
-                st.session_state.mission_id = saved_data["mission_id"]
                 st.session_state.trash = saved_data["trash"]
                 st.rerun()
             else: st.warning("이름을 입력해주세요.")
@@ -620,7 +591,7 @@ with tab_search:
                     translated_title = get_translated_title(paper['title'])
                     display_title = highlight_text(paper['title']) if show_highlight else paper['title']
                     st.markdown(
-                        f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx_an + i + 1}. {display_title}</div>""", 
                         unsafe_allow_html=True
                     )
                     if show_translation:
@@ -651,7 +622,6 @@ with tab_search:
                         if st.button("수집", key=f"collect_{unique_key_idx}", type="secondary", use_container_width=True):
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['debiased_score']
-                            check_mission(paper, "collect")
                             save_user_data(st.session_state.user_id) 
                             st.rerun()
         
@@ -827,7 +797,6 @@ with tab_analysis:
                         if st.button("수집", key=f"an_col_{unique_an_key}", type="secondary", use_container_width=True):
                             st.session_state.inventory.append(paper)
                             st.session_state.score += paper['debiased_score']
-                            check_mission(paper, "collect")
                             save_user_data(st.session_state.user_id)
                             st.rerun()
 
@@ -875,14 +844,14 @@ with tab_inventory:
             st.markdown("""
             **1. 심층 검증 (성공)**
             > **Potential + 50% 보너스**
-            
+
             <small>좋은 원석(Potential)을 발굴할수록, 연구자의 검증을 통해 그 가치가 1.5배로 증폭됩니다.</small>
             """, unsafe_allow_html=True)
             st.markdown("---")
             st.markdown("""
             **2. 강제 승인 (리스크)**
             > **Potential + 10점**
-            
+
             <small>데이터가 부족한(Risk) 논문을 억지로 승인하면, 보너스가 대폭 축소됩니다.</small>
             """, unsafe_allow_html=True)
 
