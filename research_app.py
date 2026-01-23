@@ -942,8 +942,8 @@ with tab_inventory:
                     # [Right Column] 점수 및 관리 (검색 탭 스타일 + 관리 기능)
                     with c2:
                         col_raw, col_deb = st.columns(2)
-                        with col_raw: st.metric("Impact", f"{paper['raw_score']}", help="현재 학계에서의 영향력 및 인기도 (Raw Score)")
-                        with col_deb: st.metric("Potential", f"{paper['debiased_score']}", delta=f"{-paper['bias_penalty']}", help="미래 가치 및 잠재력 (Debiased Score)")
+                        with col_raw: st.metric("Impact", f"{paper.get('raw_score', 0)}", help="현재 학계에서의 영향력 및 인기도 (Raw Score)")
+                        with col_deb: st.metric("Potential", f"{paper['debiased_score']}", delta=f"{-paper.get('bias_penalty', 0)}", help="미래 가치 및 잠재력 (Debiased Score)")
                         
                         st.divider()
                         
