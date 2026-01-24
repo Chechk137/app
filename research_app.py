@@ -201,7 +201,7 @@ def evaluate_paper(paper_data):
 # ==============================================================================
 
 def get_pubmed_count(query):
-    """PubMed에서 해당 키워드의 전체 문헌 수를 조회하여 주제의 과열 정도를 파악합니다."""
+    """PubMed에서 해당 키워드의 전체 문헌 수를 조회합니다."""
     try:
         url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
         params = {"db": "pubmed", "term": query, "retmode": "json", "rettype": "count"}
@@ -212,12 +212,13 @@ def get_pubmed_count(query):
         return None
 
 def search_crossref_api(query):
-    """Crossref API를 통해 논문 메타데이터를 검색하고 평가 로직을 적용합니다."""
+    """Crossref API를 통해 논문 메타데이터를 검색하고 평가합니다."""
     is_exact_mode = query.startswith('"') and query.endswith('"')
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        url = f"https://api.crossref.org/works?query={clean_query}&rows=1000&sort=relevance"
+        # [Modified] query -> query.title로 변경하여 제목 검색 우선순위 높임
+        url = f"https://api.crossref.org/works?query.title={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
     except Exception as e:
@@ -235,11 +236,19 @@ def search_crossref_api(query):
     citations_list = []
     years_list = []
 
+    # [New] 검색어 단어 경계 패턴 컴파일 (부분 일치 방지)
+    word_pattern = re.compile(r'\b' + re.escape(clean_query) + r'\b', re.IGNORECASE)
+
     for idx, item in enumerate(items):
         if not item.get('DOI') or not item.get('title'): continue
         
-        # 제목 전처리 및 필터링
-        title_str = item['title'][0].lower()
+        raw_title = item['title'][0]
+        title_str = raw_title.lower()
+
+        # [New] 제목 내 단어 단위 매칭 확인 (저자 매칭 제외, 부분 단어 제외)
+        if not word_pattern.search(raw_title):
+            continue
+
         invalid_titles = ["announcement", "editorial", "issue info", "correction", "erratum", "author index", "front matter", "back matter"]
         if any(inv in title_str for inv in invalid_titles): continue
         
@@ -265,7 +274,6 @@ def search_crossref_api(query):
 
         pub_year = y if y else current_year - 5
         
-        # 평가 실행
         paper_data_for_eval = {
             'title': item['title'][0], 'year': pub_year, 'citations': cit, 
             'journal': item.get('container-title', ["Unknown"])[0], 
@@ -588,8 +596,10 @@ with tab_search:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
+                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
                     display_title = highlight_text(paper['title']) if show_highlight else paper['title']
+                    
                     st.markdown(
                         f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                         unsafe_allow_html=True
@@ -607,6 +617,7 @@ with tab_search:
                     auth_display = ", ".join(paper['authors'])
                     if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
+                    
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
                 with c2:
@@ -640,6 +651,7 @@ with tab_search:
                 if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
                     st.session_state.search_page -= 1
                     st.rerun()
+            
             for idx, p_num in enumerate(display_pages):
                 if idx < 5:
                     with pg_cols[idx + 1]:
@@ -647,11 +659,13 @@ with tab_search:
                         if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
                             st.session_state.search_page = p_num
                             st.rerun()
+            
             with pg_cols[6]:
                 if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
                     st.session_state.search_page += 1
                     st.rerun()
             with pg_cols[8]:
+                 # [Fixed] Duplicate key error by renaming key from 'nav_an_input' to 'nav_search_input'
                  new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_search_input")
                  if new_page != current_page:
                     st.session_state.search_page = new_page
@@ -844,14 +858,14 @@ with tab_inventory:
             st.markdown("""
             **1. 심층 검증 (성공)**
             > **Potential + 50% 보너스**
-            
+
             <small>좋은 원석(Potential)을 발굴할수록, 연구자의 검증을 통해 그 가치가 1.5배로 증폭됩니다.</small>
             """, unsafe_allow_html=True)
             st.markdown("---")
             st.markdown("""
             **2. 강제 승인 (리스크)**
             > **Potential + 10점**
-            
+
             <small>데이터가 부족한(Risk) 논문을 억지로 승인하면, 보너스가 대폭 축소됩니다.</small>
             """, unsafe_allow_html=True)
 
@@ -912,63 +926,108 @@ with tab_inventory:
             else:
                 display_items = inv_list
 
-            cols = st.columns(2)
             for i, paper in enumerate(display_items):
                 p_id = paper['id']
-                with cols[i % 2]:
-                    with st.container(border=True):
-                        status_emoji = "❓"; status_text = "미검증"
-                        if paper['is_reviewed']:
-                            if paper['potential_type'] == "amazing": status_emoji, status_text = "✨", "대성공"
-                            elif paper['potential_type'] == "bad": status_emoji, status_text = "💀", "실패"
-                            elif paper['potential_type'] == "verified_user": status_emoji, status_text = "🛡️", "사용자 승인"
-                            else: status_emoji, status_text = "✅", "검증됨"
-
+                with st.container(border=True):
+                    c1, c2 = st.columns([5, 2])
+                    
+                    # Left Column: Paper Info & Chart (Same as Search Tab)
+                    with c1:
+                        # Title
                         translated_title = get_translated_title(paper['title'])
                         display_title = highlight_text(paper['title']) if show_highlight else paper['title']
                         st.markdown(
-                            f"""<div title="[번역] {translated_title}" style="font-size:1rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
+                            f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
                             unsafe_allow_html=True
                         )
-                        if show_translation: st.caption(f"🇰🇷 {translated_title}")
-                        st.caption(f"{status_emoji} {status_text} | {paper['journal']}")
+                        if show_translation:
+                            st.caption(f"🇰🇷 {translated_title}")
                         
-                        c_btn1, c_btn2 = st.columns([2, 1])
-                        with c_btn1:
-                            if not paper['is_reviewed']:
-                                if paper['integrity_status'] == "valid":
-                                    if st.button("🔬 심층 검증", key=f"rev_{p_id}", type="primary", use_container_width=True):
-                                        paper['is_reviewed'] = True
-                                        bonus = int(paper['debiased_score'] * 0.5)
-                                        st.session_state.score += bonus
-                                        paper['final_score'] = paper['debiased_score'] + bonus
-                                        if paper['potential_type'] == 'amazing': st.toast(f"대박! 숨겨진 명작을 찾았습니다! (+{bonus})", icon="🎉")
-                                        else: st.toast(f"검증이 완료되었습니다. (+{bonus})", icon="✅")
-                                        save_user_data(st.session_state.user_id) 
-                                        st.rerun()
-                                else:
-                                    st.warning(paper['risk_reason'])
-                                    if st.button("강제 승인", key=f"force_{p_id}", use_container_width=True):
-                                        paper['is_reviewed'] = True
-                                        bonus = 10 
-                                        st.session_state.score += bonus
-                                        paper['final_score'] = paper['debiased_score'] + bonus
-                                        paper['potential_type'] = "verified_user"
-                                        paper['reason'] = "사용자 직접 확인으로 검증됨"
-                                        save_user_data(st.session_state.user_id) 
-                                        st.rerun()
-                            else:
-                                st.success(f"가치: {paper.get('final_score', 0)}점")
-                        with c_btn2:
-                            if st.button("삭제", key=f"del_{p_id}", use_container_width=True):
-                                deduction = paper.get('final_score', paper.get('debiased_score', 0))
-                                st.session_state.score = max(0, st.session_state.score - deduction)
-                                st.session_state.inventory = [p for p in st.session_state.inventory if p['id'] != p_id]
-                                st.session_state.trash.append(paper)
-                                st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
-                                save_user_data(st.session_state.user_id) 
-                                st.rerun()
+                        # Tags
+                        tags = []
+                        if paper['has_evidence']: tags.append("🔬 Evidence")
+                        if paper['is_big_team']: tags.append("👥 Big Team")
+                        if paper['integrity_status'] != "valid": tags.append("⚠️ 데이터 부족")
+                        if paper['potential_type'] == "amazing": tags.append("💎 Hidden Gem")
+                        st.write(" ".join([f"`{t}`" for t in tags]))
+                        
+                        # Meta Info
+                        auth_display = ", ".join(paper['authors'])
+                        if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
+                        st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
                         st.markdown(f"[📄 원문 보기]({paper['url']})")
+
+                        # Chart
+                        with st.expander("점수 상세 구성 보기"):
+                            details = paper.get('score_breakdown', {})
+                            w_evidence = st.session_state.analysis_weights["evidence"]
+                            w_team = st.session_state.analysis_weights["team"]
+                            w_recency = st.session_state.analysis_weights["recency"]
+                            w_scarcity = st.session_state.analysis_weights["scarcity"]
+                            
+                            chart_data = {
+                                "Evidence (증거)": details.get('Evidence', 0) * w_evidence,
+                                "Team (규모)": details.get('Team', 0) * w_team,
+                                "Recency (최신성)": max(0, (5 - paper.get('age', 5)) * 10) * w_recency,
+                                "Scarcity (희소성)": max(0, (50 - paper.get('citation_count', 0))) * w_scarcity,
+                            }
+                            st.bar_chart(chart_data, horizontal=True)
+
+                    # Right Column: Metrics & Actions (Inventory Specific)
+                    with c2:
+                        # Base Metrics
+                        col_raw, col_deb = st.columns(2)
+                        raw_s = paper.get('raw_score', 0)
+                        deb_s = paper.get('debiased_score', 0)
+                        bias_p = paper.get('bias_penalty', 0)
+                        
+                        with col_raw: st.metric("Impact", f"{raw_s}", help="현재 학계에서의 영향력")
+                        with col_deb: st.metric("Potential", f"{deb_s}", delta=f"{-bias_p}", help="미래 가치")
+                        if bias_p > 20: st.caption("⚠ 과열됨")
+                        
+                        st.divider()
+                        
+                        # Validation Status & Value
+                        if paper['is_reviewed']:
+                            status_emoji = "✅"
+                            if paper['potential_type'] == "amazing": status_emoji = "✨ 대성공"
+                            elif paper['potential_type'] == "bad": status_emoji = "💀 실패"
+                            elif paper['potential_type'] == "verified_user": status_emoji = "🛡️ 사용자 승인"
+                            
+                            st.success(f"{status_emoji} (최종: {paper.get('final_score', 0)}점)")
+                        else:
+                            # Action Buttons for Unreviewed
+                            if paper['integrity_status'] == "valid":
+                                if st.button("🔬 심층 검증", key=f"rev_{p_id}", type="primary", use_container_width=True):
+                                    paper['is_reviewed'] = True
+                                    bonus = int(deb_s * 0.5)
+                                    st.session_state.score += bonus
+                                    paper['final_score'] = deb_s + bonus
+                                    if paper['potential_type'] == 'amazing': st.toast(f"대박! 숨겨진 명작을 찾았습니다! (+{bonus})", icon="🎉")
+                                    else: st.toast(f"검증이 완료되었습니다. (+{bonus})", icon="✅")
+                                    save_user_data(st.session_state.user_id) 
+                                    st.rerun()
+                            else:
+                                st.warning(paper['risk_reason'])
+                                if st.button("강제 승인", key=f"force_{p_id}", use_container_width=True):
+                                    paper['is_reviewed'] = True
+                                    bonus = 10 
+                                    st.session_state.score += bonus
+                                    paper['final_score'] = deb_s + bonus
+                                    paper['potential_type'] = "verified_user"
+                                    paper['reason'] = "사용자 직접 확인으로 검증됨"
+                                    save_user_data(st.session_state.user_id) 
+                                    st.rerun()
+                        
+                        # Delete Button
+                        if st.button("삭제", key=f"del_{p_id}", use_container_width=True):
+                            deduction = paper.get('final_score', deb_s)
+                            st.session_state.score = max(0, st.session_state.score - deduction)
+                            st.session_state.inventory = [p for p in st.session_state.inventory if p['id'] != p_id]
+                            st.session_state.trash.append(paper)
+                            st.toast(f"논문 삭제. {deduction}점 차감됨", icon="🗑️")
+                            save_user_data(st.session_state.user_id) 
+                            st.rerun()
 
 # ------------------------------------------------------------------------------
 # [Tab 4] 휴지통 (Trash)
