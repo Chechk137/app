@@ -99,10 +99,15 @@ def highlight_text(text):
 # ==============================================================================
 # [SECTION 4] 핵심 평가 알고리즘 (Scoring Logic)
 # : 논문의 가치를 계산하는 가장 중요한 로직입니다.
+# : [Update] PubMed 주제 과열도(Multiplier)를 인자(topic_multiplier)로 받도록 수정되었습니다.
 # ==============================================================================
 
-def evaluate_paper(paper_data):
-    """논문 메타데이터를 기반으로 Impact(인기도)와 Potential(내실)을 계산합니다."""
+def evaluate_paper(paper_data, topic_multiplier=1.0):
+    """
+    논문 메타데이터와 주제 과열도를 기반으로 Impact(인기도)와 Potential(내실)을 계산합니다.
+    
+    topic_multiplier: PubMed 문헌 수에 따른 과열 가중치 (기본 1.0 ~ 최대 2.0)
+    """
     current_year = get_current_year()
     year = paper_data.get('year', current_year - 5)
     age = current_year - year
@@ -146,13 +151,19 @@ def evaluate_paper(paper_data):
         debiased_base += 10
         score_breakdown["Team"] = 10
     
-    # 문헌량 편향 제거 (최신 연구일수록 패널티 완화)
-    volume_discount = min(25, int(math.log(citation_count + 1) * 4))
-    if age <= 2: volume_discount = int(volume_discount * 0.1)
-    elif age <= 5: volume_discount = int(volume_discount * 0.5)
+    # [Logic Update] 문헌량 편향 제거 (Volume Discount)
+    # PubMed 주제 과열도(Multiplier)를 곱하여, 과열된 주제일수록 인용수 감점을 크게 적용
+    base_volume_discount = min(25, int(math.log(citation_count + 1) * 4))
+    
+    # 최신 연구 보정 (오래될수록 페널티 그대로, 최신일수록 페널티 완화)
+    if age <= 2: base_volume_discount = int(base_volume_discount * 0.1)
+    elif age <= 5: base_volume_discount = int(base_volume_discount * 0.5)
 
-    score_breakdown["Volume Penalty"] = -volume_discount
-    debiased_score = debiased_base - volume_discount
+    # 최종 감점 = 인용 기반 감점 * 주제 과열도
+    final_volume_penalty = int(base_volume_discount * topic_multiplier)
+
+    score_breakdown["Volume Penalty"] = -final_volume_penalty
+    debiased_score = debiased_base - final_volume_penalty
     
     # 신뢰도 패널티 적용
     if integrity_status != "valid":
@@ -217,7 +228,7 @@ def search_crossref_api(query):
     clean_query = query.strip('"') if is_exact_mode else query
     
     try:
-        # [Modified] query -> query.title로 변경하여 제목 검색 우선순위 높임
+        # [Modified] 제목 우선 검색 (query.title)
         url = f"https://api.crossref.org/works?query.title={clean_query}&rows=1000&sort=relevance"
         response = requests.get(url, timeout=20)
         data = response.json()
@@ -233,10 +244,19 @@ def search_crossref_api(query):
     current_year = get_current_year()
     pubmed_count = get_pubmed_count(clean_query)
     
+    # [New] 주제 과열도(Multiplier) 산정
+    # 문헌량이 많을수록 거품일 확률이 높다고 가정하여 페널티를 강화함
+    topic_multiplier = 1.0
+    if pubmed_count:
+        if pubmed_count > 10000: topic_multiplier = 2.0  # 매우 과열됨 -> 감점 2배
+        elif pubmed_count > 5000: topic_multiplier = 1.5 # 과열됨 -> 감점 1.5배
+        elif pubmed_count > 1000: topic_multiplier = 1.2 # 보통 -> 감점 1.2배
+        # 그 외(1000 이하)는 1.0배 (기본)
+
     citations_list = []
     years_list = []
 
-    # [New] 검색어 단어 경계 패턴 컴파일 (부분 일치 방지)
+    # [New] 검색어 단어 경계 패턴 (엄격한 필터링용)
     word_pattern = re.compile(r'\b' + re.escape(clean_query) + r'\b', re.IGNORECASE)
 
     for idx, item in enumerate(items):
@@ -245,7 +265,7 @@ def search_crossref_api(query):
         raw_title = item['title'][0]
         title_str = raw_title.lower()
 
-        # [New] 제목 내 단어 단위 매칭 확인 (저자 매칭 제외, 부분 단어 제외)
+        # [Check] 제목 내 단어 단위 포함 여부 확인
         if not word_pattern.search(raw_title):
             continue
 
@@ -280,7 +300,9 @@ def search_crossref_api(query):
             'author_count': len(valid_authors), 
             'ref_count': item.get('reference-count')
         }
-        eval_result = evaluate_paper(paper_data_for_eval)
+        
+        # [Modified] topic_multiplier를 평가 함수에 전달
+        eval_result = evaluate_paper(paper_data_for_eval, topic_multiplier)
 
         # 결과 객체 생성
         paper_obj = {
@@ -310,7 +332,8 @@ def search_crossref_api(query):
         "pubmed_count": pubmed_count if pubmed_count is not None else "집계 불가",
         "avg_citations": avg_citations,
         "period": period_str,
-        "is_high_exposure": (pubmed_count > 5000 if pubmed_count else False) or avg_citations > 100
+        "is_high_exposure": (pubmed_count > 5000 if pubmed_count else False) or avg_citations > 100,
+        "multiplier": topic_multiplier # UI 표시용
     }
 
     # 기본 정렬: Potential(내실) 순
@@ -356,7 +379,6 @@ def convert_to_csv(inventory_list):
 
 # ==============================================================================
 # [SECTION 7] Streamlit UI 구성 - 메인 및 사이드바
-# : 앱의 시각적 요소를 구성하고 사용자 상호작용을 처리합니다.
 # ==============================================================================
 
 st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
@@ -510,11 +532,20 @@ with tab_search:
             bc1, bc2, bc3 = st.columns(3)
             pub_cnt = summary['pubmed_count']
             pub_cnt_str = f"{pub_cnt:,}편" if isinstance(pub_cnt, int) else str(pub_cnt)
-            with bc1: st.metric("PubMed 논문 수", pub_cnt_str)
+            with bc1: st.metric("PubMed 논문 수", pub_cnt_str, help="해당 키워드의 전체 문헌 수 (시장 규모)")
             with bc2: st.metric("평균 인용수 (Top 200)", f"{summary['avg_citations']:,}회")
-            with bc3: st.metric("연구 집중 시기", summary['period'])
+            
+            # Multiplier 표시
+            mult = summary.get('multiplier', 1.0)
+            mult_color = "normal"
+            if mult >= 2.0: mult_color = "off" # 빨강 느낌
+            elif mult >= 1.5: mult_color = "off"
+            
+            with bc3: 
+                st.metric("과열도 가중치", f"x{mult}", help="문헌량이 많을수록 인용수 거품을 제거하기 위해 페널티가 강화됩니다.")
+
             if summary['is_high_exposure']:
-                st.warning("⚠ **High Exposure Topic**: 연구가 매우 활발하여, 상위 노출 논문의 Impact(영향력)가 과대평가되었을 가능성이 큽니다. Potential(잠재력) 지표를 참고하세요.")
+                st.warning(f"⚠ **High Exposure Topic**: 연구가 매우 활발하여(x{mult}), 상위 노출 논문의 Impact(영향력)가 과대평가되었을 가능성이 큽니다. Potential(잠재력) 지표를 참고하세요.")
             else:
                 st.success("✅ **Niche Topic**: 비교적 연구가 덜 된 분야입니다. 숨겨진 명작이 많을 수 있습니다.")
         st.divider()
@@ -596,12 +627,10 @@ with tab_search:
             with st.container(border=True):
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    # [Changed] Title Display with Tooltip & Translation & Highlight
                     translated_title = get_translated_title(paper['title'])
                     display_title = highlight_text(paper['title']) if show_highlight else paper['title']
-                    
                     st.markdown(
-                        f"""<div title="[번역] {translated_title}" style="font-size:1.2rem; font-weight:bold; margin-bottom:5px;">{display_title}</div>""", 
+                        f"""<div title="[번역] {translated_title}" style="font-size:1.1rem; font-weight:bold; margin-bottom:5px;">{start_idx + i + 1}. {display_title}</div>""", 
                         unsafe_allow_html=True
                     )
                     if show_translation:
@@ -617,7 +646,6 @@ with tab_search:
                     auth_display = ", ".join(paper['authors'])
                     if paper['author_full_count'] > 3: auth_display += f" 외 {paper['author_full_count'] - 3}명"
                     st.caption(f"{paper['year']} | {paper['journal']} | 인용 {paper['citations']}회 | 저자: {auth_display}")
-                    
                     st.markdown(f"[📄 원문 보기]({paper['url']})")
 
                 with c2:
@@ -651,7 +679,6 @@ with tab_search:
                 if st.button("◀", key="nav_prev", disabled=current_page==1, use_container_width=True):
                     st.session_state.search_page -= 1
                     st.rerun()
-            
             for idx, p_num in enumerate(display_pages):
                 if idx < 5:
                     with pg_cols[idx + 1]:
@@ -659,13 +686,11 @@ with tab_search:
                         if st.button(f"{p_num}", key=f"nav_p_{p_num}", type=b_type, use_container_width=True):
                             st.session_state.search_page = p_num
                             st.rerun()
-            
             with pg_cols[6]:
                 if st.button("▶", key="nav_next", disabled=current_page==total_pages, use_container_width=True):
                     st.session_state.search_page += 1
                     st.rerun()
             with pg_cols[8]:
-                 # [Fixed] Duplicate key error by renaming key from 'nav_an_input' to 'nav_search_input'
                  new_page = st.number_input("이동", min_value=1, max_value=total_pages, value=current_page, label_visibility="collapsed", key="nav_search_input")
                  if new_page != current_page:
                     st.session_state.search_page = new_page
@@ -977,6 +1002,7 @@ with tab_inventory:
                     with c2:
                         # Base Metrics
                         col_raw, col_deb = st.columns(2)
+                        # [Fixed] Safe access to dictionary keys
                         raw_s = paper.get('raw_score', 0)
                         deb_s = paper.get('debiased_score', 0)
                         bias_p = paper.get('bias_penalty', 0)
