@@ -11,10 +11,17 @@ import pandas as pd
 import altair as alt
 from collections import Counter
 
+# [Firebase 라이브러리 추가]
+# 배포 환경에서 사용하려면 requirements.txt에 'firebase-admin'을 추가해야 합니다.
+import firebase_admin
+from firebase_admin import credentials, firestore
+
 # ==============================================================================
 # [SECTION 1] 설정 및 상수 정의
 # : 앱 전반에서 사용되는 고정값과 환경 설정을 관리합니다.
 # ==============================================================================
+
+st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
 
 # 논문 평가 및 시각적 강조(하이라이팅)에 사용되는 핵심 키워드 리스트
 EVIDENCE_KEYWORDS = [
@@ -23,19 +30,56 @@ EVIDENCE_KEYWORDS = [
     'evaluation', 'characterization', 'properties', 'performance', 'application'
 ]
 
-# 데이터 저장 경로 설정
+# 데이터 저장 경로 설정 (로컬 백업용)
 DATA_DIR = "user_data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
+# ==============================================================================
+# [SECTION 2] 데이터 관리 (Persistence Layer) - Firebase 연동 업그레이드
+# : Firestore DB가 설정되어 있으면 DB를 사용하고, 없으면 로컬 JSON을 사용합니다.
+# ==============================================================================
 
-# ==============================================================================
-# [SECTION 2] 데이터 관리 (Persistence Layer)
-# : 사용자 데이터를 JSON 파일로 로드하고 저장하는 함수들입니다.
-# ==============================================================================
+@st.cache_resource
+def get_db():
+    """Firestore DB 객체를 싱글톤으로 생성하여 반환합니다."""
+    # st.secrets에 firebase 설정이 있는지 확인
+    if "firebase" in st.secrets:
+        try:
+            # 이미 초기화되었는지 확인
+            if not firebase_admin._apps:
+                # secrets에서 정보 로드 (Streamlit Cloud 환경)
+                key_dict = dict(st.secrets["firebase"])
+                cred = credentials.Certificate(key_dict)
+                firebase_admin.initialize_app(cred)
+            return firestore.client()
+        except Exception as e:
+            st.error(f"Firebase 초기화 오류: {e}")
+            return None
+    return None
 
 def load_user_data(user_id):
-    """사용자 ID에 해당하는 JSON 파일을 읽어옵니다. 없으면 기본값을 반환합니다."""
+    """DB에서 데이터를 불러오거나, 실패 시 로컬 JSON을 읽습니다."""
+    db = get_db()
+    
+    # 1. Firestore 모드
+    if db:
+        try:
+            doc_ref = db.collection("researchers").document(user_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                return {
+                    "score": data.get("score", 0),
+                    "inventory": data.get("inventory", []),
+                    "trash": data.get("trash", [])
+                }
+            else:
+                return {"score": 0, "inventory": [], "trash": []}
+        except Exception as e:
+            st.warning(f"DB 연결 실패 (로컬 모드 전환): {e}")
+
+    # 2. 로컬 JSON 모드 (Fallback)
     file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     if os.path.exists(file_path):
         try:
@@ -46,23 +90,34 @@ def load_user_data(user_id):
                     "inventory": data.get("inventory", []),
                     "trash": data.get("trash", [])
                 }
-        except Exception as e:
-            st.error(f"데이터 로드 오류: {e}")
+        except Exception:
+            pass
     return {"score": 0, "inventory": [], "trash": []}
 
 def save_user_data(user_id):
-    """현재 세션 상태(점수, 인벤토리 등)를 JSON 파일로 저장합니다."""
-    file_path = os.path.join(DATA_DIR, f"{user_id}.json")
+    """데이터를 DB와 로컬 JSON 모두에 저장합니다."""
     data = {
         "score": st.session_state.score,
         "inventory": st.session_state.inventory,
-        "trash": st.session_state.trash
+        "trash": st.session_state.trash,
+        "last_updated": datetime.datetime.now().isoformat()
     }
+    
+    # 1. Firestore 저장
+    db = get_db()
+    if db:
+        try:
+            db.collection("researchers").document(user_id).set(data)
+        except Exception as e:
+            st.error(f"DB 저장 오류: {e}")
+
+    # 2. 로컬 JSON 저장 (백업용)
+    file_path = os.path.join(DATA_DIR, f"{user_id}.json")
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        st.error(f"데이터 저장 오류: {e}")
+        st.error(f"로컬 저장 오류: {e}")
 
 
 # ==============================================================================
@@ -381,8 +436,6 @@ def convert_to_csv(inventory_list):
 # [SECTION 7] Streamlit UI 구성 - 메인 및 사이드바
 # ==============================================================================
 
-st.set_page_config(page_title="Research Simulator", page_icon="🎓", layout="wide")
-
 # 세션 상태 초기화
 if 'user_id' not in st.session_state: st.session_state['user_id'] = None
 if 'score' not in st.session_state: st.session_state['score'] = 0
@@ -435,6 +488,14 @@ with st.sidebar:
     st.title("🎓 AI 기반 논문 추천 시스템")
     st.caption("캡스톤 디자인 _ AI:D")
     st.info(f"👤 {st.session_state.user_id} 연구원")
+    
+    # DB 연결 상태 표시
+    if get_db():
+        st.success("☁️ DB 연결됨 (영구 저장)")
+    else:
+        st.warning("💾 로컬 저장 모드 (휘발성)")
+        st.caption("⚠️ 주의: 페이지를 새로고침하거나 닫으면 데이터가 사라질 수 있습니다.")
+
     if st.button("로그아웃 (저장됨)", use_container_width=True):
         save_user_data(st.session_state.user_id)
         st.session_state.user_id = None
